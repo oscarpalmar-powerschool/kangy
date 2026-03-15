@@ -3,7 +3,7 @@
 These workflows run only when their path changed (Option 1 versioning):
 
 - **On push to `main`:** compare with the previous commit.
-- **On tag `v*`:** compare with the **previous tag** (e.g. `v1.5.1` vs `v1.5.0`). If only `firmware/` changed, no backend/frontend/agents deploy runs.
+- **On tag `v*`:** compare with the **previous tag** (e.g. `v1.5.1` vs `v1.5.0`). If only `devices/` changed, no backend/frontend/agents deploy runs.
 
 ## Repo layout expected
 
@@ -11,7 +11,7 @@ These workflows run only when their path changed (Option 1 versioning):
 backend/          # Spring Boot, must have backend/Dockerfile
 frontend/         # React/TS, must have frontend/Dockerfile (e.g. multi-stage: node build + nginx)
 agents/           # FastAPI + LangChain, must have agents/Dockerfile
-firmware/         # Arduino .ino (no deploy here)
+devices/          # ESP32, XIAO, RPi, etc. (no deploy to AWS; see devices/README.md)
 ```
 
 ## GitHub configuration
@@ -62,7 +62,7 @@ Set these under **Settings → Secrets and variables → Actions → Variables**
 - Push to `main` or tag `v*` triggers all three workflows.
 - Each workflow computes “base ref” (previous commit or previous tag), then runs **dorny/paths-filter**.
 - Only if that app’s path changed does it build the Docker image, push to ECR, and run `aws ecs update-service ... --force-new-deployment`.
-- So: firmware-only changes → tag `v1.5.1` → no backend/frontend/agents changes → no ECS deploy, only firmware can use the tag for its own release.
+- So: devices-only changes → tag `v1.5.1` → no backend/frontend/agents changes → no ECS deploy, only devices can use the tag for their own release.
 
 ## Dev vs prod
 
