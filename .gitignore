@@ -19,3 +19,8 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# ESP32 config
+devices/esp32/deviceController/config_local.h
+devices/esp32/deviceController/config.dev.h
+devices/esp32/deviceController/config.prod.h
