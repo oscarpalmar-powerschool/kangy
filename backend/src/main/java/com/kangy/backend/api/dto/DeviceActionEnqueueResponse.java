@@ -1,8 +1,8 @@
 package com.kangy.backend.api.dto;
 
-public record DeviceRegistrationResponse(
+public record DeviceActionEnqueueResponse(
     String deviceId,
-    String token,
+    int enqueuedCount,
     String message
 ) {}
 

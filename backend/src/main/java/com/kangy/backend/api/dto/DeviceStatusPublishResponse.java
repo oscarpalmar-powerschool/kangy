@@ -1,8 +1,8 @@
 package com.kangy.backend.api.dto;
 
-public record DeviceRegistrationResponse(
+public record DeviceStatusPublishResponse(
     String deviceId,
-    String token,
+    String acceptedAt,
     String message
 ) {}
 

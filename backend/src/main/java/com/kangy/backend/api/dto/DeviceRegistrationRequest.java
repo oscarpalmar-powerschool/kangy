@@ -1,13 +1,14 @@
 package com.kangy.backend.api.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
-import java.util.Map;
+import java.util.List;
 
 public record DeviceRegistrationRequest(
-    @Size(max = 128) String deviceId,
-    @NotBlank @Size(max = 64) String deviceType,
-    @Size(max = 64) String firmwareVersion,
-    Map<String, Object> metadata
+    @NotBlank @Size(max = 128) String deviceId,
+    @NotBlank @Size(max = 16) String deviceType,
+    @NotEmpty List<@NotBlank @Size(max = 64) String> inputCapabilities,
+    @NotEmpty List<@NotBlank @Size(max = 64) String> outputCapabilities
 ) {}
 
