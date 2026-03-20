@@ -1,88 +1,303 @@
 /*
- * ESP32 remote servo: polls servo angle from JSON URL and sets the servo.
- * URL: http://192.168.132.73:8000/esp32/servo.json  ->  { "angle": 20 }
+ * ESP32 device controller: registers with Kangy backend (servo + LED outputs),
+ * then uses a single POST /status round-trip per interval to ack completed actions
+ * and receive new ones (minimal traffic vs separate GET + ack).
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
+#include <vector>
 #include "config_local.h"
 
-const char* ssid     = WIFI_SSID;
-const char* password = WIFI_PASSWORD;
-const char* url      = SERVER_URL;
+static const char* kSsid = WIFI_SSID;
+static const char* kPassword = WIFI_PASSWORD;
+static const char* kApiBase = API_BASE_URL;
 
-// --- Servo ---
-Servo myservo;
-const int servoPin = 13;
-int lastAngle = -1;
+const int kLedPin = 2;
+const int kServoPin = 13;
 
-const unsigned long pollIntervalMs = 500;  // poll every 500 ms
-unsigned long lastPoll = 0;
+Servo gServo;
+String gDeviceId;
+String gToken;
+std::vector<String> gAckIds;
+
+const unsigned long kPollIntervalMs = 2000;
+
+unsigned long gLastPollMs = 0;
+int gLastServoAngle = -1;
+
+// --- LED (solid + non-blocking blink) ---
+bool gLedBlink = false;
+bool gLedOn = false;
+unsigned long gLedNextToggleMs = 0;
+unsigned long gLedHalfPeriodMs = 250;
+unsigned long gLedStopAtMs = 0;
+int gLedToggleBudget = -1;
+
+void ledSetSolid(bool on) {
+  gLedBlink = false;
+  gLedOn = on;
+  digitalWrite(kLedPin, on ? HIGH : LOW);
+}
+
+void ledStartBlink(unsigned long periodMs, long durationMs, int count) {
+  gLedBlink = true;
+  gLedHalfPeriodMs = (periodMs > 0) ? max(50UL, periodMs / 2) : 250;
+  gLedNextToggleMs = millis();
+  gLedStopAtMs = (durationMs > 0) ? (millis() + (unsigned long)durationMs) : 0;
+  gLedToggleBudget = (count > 0) ? (count * 2) : -1;
+  gLedOn = true;
+  digitalWrite(kLedPin, HIGH);
+}
+
+void ledService() {
+  if (!gLedBlink) {
+    return;
+  }
+  unsigned long now = millis();
+  if (gLedStopAtMs != 0 && now >= gLedStopAtMs) {
+    gLedBlink = false;
+    digitalWrite(kLedPin, LOW);
+    return;
+  }
+  if (now < gLedNextToggleMs) {
+    return;
+  }
+  gLedNextToggleMs = now + gLedHalfPeriodMs;
+  gLedOn = !gLedOn;
+  digitalWrite(kLedPin, gLedOn ? HIGH : LOW);
+  if (gLedToggleBudget > 0) {
+    gLedToggleBudget--;
+    if (gLedToggleBudget == 0) {
+      gLedBlink = false;
+      digitalWrite(kLedPin, LOW);
+    }
+  }
+}
+
+static void buildDeviceIdFromMac() {
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  char buf[32];
+  snprintf(buf, sizeof(buf), "esp32-%02X%02X%02X%02X%02X%02X",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  gDeviceId = buf;
+}
+
+static bool postJson(const String& url, const String& authBearer, const String& jsonBody, String& outBody, int& httpCode) {
+  HTTPClient http;
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  if (authBearer.length() > 0) {
+    http.addHeader("Authorization", "Bearer " + authBearer);
+  }
+  httpCode = http.POST(jsonBody);
+  if (httpCode > 0) {
+    outBody = http.getString();
+  } else {
+    outBody = "";
+  }
+  http.end();
+  return httpCode > 0;
+}
+
+bool registerWithBackend() {
+  DynamicJsonDocument req(512);
+  req["deviceId"] = gDeviceId;
+  req["deviceType"] = "ESP32";
+  JsonArray inCaps = req.createNestedArray("inputCapabilities");
+  inCaps.add("heartbeat");
+  JsonArray outCaps = req.createNestedArray("outputCapabilities");
+  outCaps.add("servo");
+  outCaps.add("led");
+
+  String body;
+  serializeJson(req, body);
+
+  String resp;
+  int code = 0;
+  String url = String(kApiBase) + "/register";
+  if (!postJson(url, "", body, resp, code)) {
+    Serial.printf("register: HTTP error (no response)\n");
+    return false;
+  }
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("register: HTTP %d: %s\n", code, resp.c_str());
+    return false;
+  }
+
+  DynamicJsonDocument doc(1024);
+  DeserializationError err = deserializeJson(doc, resp);
+  if (err) {
+    Serial.printf("register: JSON error: %s\n", err.c_str());
+    return false;
+  }
+  const char* tok = doc["token"];
+  if (!tok || !tok[0]) {
+    Serial.println("register: missing token");
+    return false;
+  }
+  gToken = tok;
+  Serial.printf("Registered %s\n", gDeviceId.c_str());
+  return true;
+}
+
+static void applyServo(JsonObjectConst payload) {
+  const char* id = payload["id"];
+  if (!id || strcmp(id, "servo") != 0) {
+    return;
+  }
+  if (!payload.containsKey("degrees")) {
+    return;
+  }
+  int deg = (int) payload["degrees"].as<float>();
+  deg = constrain(deg, 0, 180);
+  gServo.write(deg);
+  if (deg != gLastServoAngle) {
+    gLastServoAngle = deg;
+    Serial.printf("Servo -> %d\n", deg);
+  }
+}
+
+static void applyLed(JsonObjectConst payload) {
+  const char* id = payload["id"];
+  if (!id || strcmp(id, "led") != 0) {
+    return;
+  }
+  const char* mode = payload["mode"];
+  if (!mode) {
+    return;
+  }
+  if (strcmp(mode, "on") == 0) {
+    ledSetSolid(true);
+    Serial.println("LED on");
+  } else if (strcmp(mode, "off") == 0) {
+    ledSetSolid(false);
+    Serial.println("LED off");
+  } else if (strcmp(mode, "blink") == 0) {
+    unsigned long periodMs = payload["periodMs"].isNull() ? 500 : (unsigned long) payload["periodMs"].as<unsigned long>();
+    long durationMs = payload["durationMs"].isNull() ? 0 : payload["durationMs"].as<long>();
+    int count = payload["count"].isNull() ? 0 : payload["count"].as<int>();
+    ledStartBlink(periodMs, durationMs, count);
+    Serial.println("LED blink");
+  }
+}
+
+static void applyAction(JsonObjectConst action) {
+  const char* type = action["type"];
+  JsonObjectConst payload = action["payload"];
+  if (!type) {
+    return;
+  }
+  if (strcmp(type, "servo.setPosition") == 0) {
+    applyServo(payload);
+  } else if (strcmp(type, "led.command") == 0) {
+    applyLed(payload);
+  } else {
+    Serial.printf("Unknown action type: %s (will still ack)\n", type);
+  }
+}
+
+static bool publishStatusRoundTrip() {
+  DynamicJsonDocument req(1024);
+  if (!gAckIds.empty()) {
+    JsonArray arr = req.createNestedArray("ackedActionIds");
+    for (const String& id : gAckIds) {
+      arr.add(id);
+    }
+  }
+  req["actionLimit"] = 25;
+
+  String reqBody;
+  serializeJson(req, reqBody);
+
+  String url = String(kApiBase) + "/" + gDeviceId + "/status";
+  String resp;
+  int code = 0;
+  if (!postJson(url, gToken, reqBody, resp, code)) {
+    return false;
+  }
+
+  if (code == HTTP_CODE_UNAUTHORIZED) {
+    Serial.println("status: unauthorized, re-registering");
+    if (!registerWithBackend()) {
+      return false;
+    }
+    if (!postJson(url, gToken, reqBody, resp, code)) {
+      return false;
+    }
+  }
+
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("status: HTTP %d: %s\n", code, resp.c_str());
+    return false;
+  }
+
+  DynamicJsonDocument doc(6144);
+  DeserializationError err = deserializeJson(doc, resp);
+  if (err) {
+    Serial.printf("status: JSON error: %s\n", err.c_str());
+    return false;
+  }
+
+  gAckIds.clear();
+
+  JsonArray actions = doc["actions"].as<JsonArray>();
+  for (JsonObject act : actions) {
+    applyAction(act);
+    const char* aid = act["actionId"];
+    if (aid && aid[0]) {
+      gAckIds.push_back(aid);
+    }
+  }
+  return true;
+}
 
 void setup() {
-  Serial.println("Setup starting");
   Serial.begin(115200);
-  pinMode(2, OUTPUT);  // built-in LED
-  Serial.println("Servo attached, connecting");
-  myservo.attach(servoPin);
+  delay(200);
+  pinMode(kLedPin, OUTPUT);
+  digitalWrite(kLedPin, LOW);
+
+  gServo.attach(kServoPin);
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi");
+  buildDeviceIdFromMac();
+
+  WiFi.begin(kSsid, kPassword);
+  Serial.print("Connecting ");
+  Serial.println(gDeviceId);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
   Serial.println();
-  Serial.println("WiFi connected");
   Serial.print("IP: ");
   Serial.println(WiFi.localIP());
+
+  while (!registerWithBackend()) {
+    delay(3000);
+  }
 }
 
 void loop() {
+  ledService();
+
   if (WiFi.status() != WL_CONNECTED) {
-    digitalWrite(2, LOW);
     delay(500);
     return;
   }
-  digitalWrite(2, HIGH);
 
   unsigned long now = millis();
-  if (now - lastPoll < pollIntervalMs) {
-    delay(50);
+  if (now - gLastPollMs < kPollIntervalMs) {
+    delay(20);
     return;
   }
-  lastPoll = now;
+  gLastPollMs = now;
 
-  HTTPClient http;
-  http.begin(url);
-  int code = http.GET();
-
-  if (code != HTTP_CODE_OK) {
-    Serial.printf("GET failed: %d\n", code);
-    http.end();
-    return;
-  }
-
-  String payload = http.getString();
-  http.end();
-
-  // Parse JSON: { "angle": 20 }
-  StaticJsonDocument<128> doc;
-  DeserializationError err = deserializeJson(doc, payload);
-  if (err) {
-    Serial.printf("JSON parse error: %s\n", err.c_str());
-    return;
-  }
-
-  int angle = doc["angle"] | 90;  // default 90 if missing
-  angle = constrain(angle, 0, 180);
-
-  if (angle != lastAngle) {
-    myservo.write(angle);
-    lastAngle = angle;
-    Serial.printf("Servo -> %d\n", angle);
+  if (!publishStatusRoundTrip()) {
+    delay(500);
   }
 }
