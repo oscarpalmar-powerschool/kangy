@@ -19,8 +19,17 @@ See [devices/README.md](devices/README.md) for per-device tooling and layout.
 
 ## Run locally
 
-- **Backend:** `cd backend && ./mvnw spring-boot:run` (or your Gradle equivalent)
+- **Backend:** `cd backend && mvn -DskipTests spring-boot:run` (or from repo root: 'docker build -t kangy-backend ./backend' 'docker run --rm -p 8080:8080 kangy-backend' )
+  Useful URLs:
+
+Health: GET /actuator/health
+OpenAPI JSON: GET /api-docs
+Swagger UI: GET /swagger-ui
+
 - **Frontend:** `cd frontend && npm install && npm run dev`
+  - By default the frontend calls the backend on the same origin via `/api/...` (Vite dev server proxies `/api` to `http://localhost:8080`).
+  - To override the API base URL at build time: set `VITE_API_BASE` (see `frontend/.env.example`).
+  - For Docker/nginx runtime config: set `KANGY_API_BASE` (the container writes `/config.js` on startup).
 - **Agents:** `cd agents && pip install -r requirements.txt && uvicorn main:app --reload`
 - **Devices:** Open the right subfolder (e.g. `devices/esp32/<sketch>/`) in Arduino IDE, or run your RPi app from `devices/rpi/`.
 

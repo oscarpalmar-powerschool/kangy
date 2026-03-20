@@ -5,7 +5,7 @@ name: Frontend CI / Deploy
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ["v*"]
 
 jobs:
   deploy:
@@ -33,7 +33,11 @@ jobs:
             PREV=$(git tag -l 'v*' --sort=-v:refname | sed -n '2p')
             echo "ref=${PREV:-main}" >> $GITHUB_OUTPUT
           else
-            echo "ref=${{ github.event.before || github.sha }}^" >> $GITHUB_OUTPUT
+            if [[ -n "${{ github.event.before }}" ]]; then
+              echo "ref=${{ github.event.before }}^" >> $GITHUB_OUTPUT
+            else
+              echo "ref=main" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Check for frontend changes
