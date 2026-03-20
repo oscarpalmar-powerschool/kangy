@@ -44,7 +44,7 @@ jobs:
             echo "ref=${PREV:-main}" >> $GITHUB_OUTPUT
           else
             if [[ -n "${{ github.event.before }}" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
-              echo "ref=${{ github.event.before }}^" >> $GITHUB_OUTPUT
+              echo "ref=${{ github.event.before }}" >> $GITHUB_OUTPUT
             else
               echo "ref=main" >> $GITHUB_OUTPUT
             fi
