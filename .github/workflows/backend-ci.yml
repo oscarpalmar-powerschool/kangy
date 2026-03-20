@@ -24,6 +24,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch previous commit if it exists
+        run: |
+          if [ -n "$PREVIOUS_SHA" ] && [ "$PREVIOUS_SHA" != "0000000000000000000000000000000000000000" ] && git cat-file -e $PREVIOUS_SHA 2>/dev/null; then
+            git fetch --no-tags --depth=100 origin $PREVIOUS_SHA
+          else
+            echo "No previous commit SHA available - skipping fetch."
+          fi
+        env:
+          PREVIOUS_SHA: ${{ github.event.before }}
+
       - name: Set base ref for path filter
         id: base
         run: |
@@ -32,7 +42,11 @@ jobs:
             PREV=$(git tag -l 'v*' --sort=-v:refname | sed -n '2p')
             echo "ref=${PREV:-main}" >> $GITHUB_OUTPUT
           else
-            echo "ref=${{ github.event.before || github.sha }}^" >> $GITHUB_OUTPUT
+            if [[ -n "${{ github.event.before }}" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+              echo "ref=${{ github.event.before }}" >> $GITHUB_OUTPUT
+            else
+              echo "ref=main" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Check for backend changes
