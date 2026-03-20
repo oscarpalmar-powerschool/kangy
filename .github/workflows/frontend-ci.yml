@@ -43,9 +43,49 @@ jobs:
             PREV=$(git tag -l 'v*' --sort=-v:refname | sed -n '2p')
             echo "ref=${PREV:-main}" >> $GITHUB_OUTPUT
           else
-            # Only use before sha if it is valid and exists in history
-            if [[ -n "${{ github.event.before }}" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" && $(git cat-file -e ${{ github.event.before }} 2>/dev/null; echo $?) -eq 0 ]]; then
-              echo "ref=${{ github.event.before }}" >> $GITHUB_OUTPUT
+            if [[ -n "${{ github.event.before }}" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+              echo "ref=${{ github.event.before }}^" >> $GITHUB_OUTPUT
             else
-              echo "ref=main" >> $G
-
+              echo "ref=main" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Check for frontend changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            frontend:
+              - 'frontend/**'
+          base: ${{ steps.base.outputs.ref }}
+
+      - name: Configure AWS credentials
+        if: steps.filter.outputs.frontend == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: steps.filter.outputs.frontend == 'true'
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        if: steps.filter.outputs.frontend == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f frontend/Dockerfile frontend/
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Deploy to ECS
+        if: steps.filter.outputs.frontend == 'true'
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --force-new-deployment \
+            --region $AWS_REGION
