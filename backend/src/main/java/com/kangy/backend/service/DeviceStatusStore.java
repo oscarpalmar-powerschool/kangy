@@ -14,11 +14,17 @@ public class DeviceStatusStore {
   private final ConcurrentHashMap<String, String> lastSeenAtByDeviceId = new ConcurrentHashMap<>();
 
   public void append(String deviceId, DeviceStatusPublishRequest request) {
+    List<DeviceStatusPublishRequest.Observation> observations = request.observations();
+    if (observations == null || observations.isEmpty()) {
+      lastSeenAtByDeviceId.put(deviceId, Instant.now().toString());
+      return;
+    }
+
     String reportedAt = (request.reportedAt() == null || request.reportedAt().isBlank())
         ? Instant.now().toString()
         : request.reportedAt();
 
-    StatusReport report = new StatusReport(reportedAt, request.observations());
+    StatusReport report = new StatusReport(reportedAt, observations);
 
     List<StatusReport> list = historyByDeviceId.computeIfAbsent(
         deviceId,

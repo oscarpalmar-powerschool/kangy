@@ -4,14 +4,7 @@ import java.util.List;
 
 public record DeviceActionPollResponse(
     String deviceId,
-    List<PendingAction> actions,
+    List<DevicePendingAction> actions,
     String polledAt
-) {
-  public record PendingAction(
-      String actionId,
-      String type,
-      Object payload,
-      String createdAt
-  ) {}
-}
+) {}
 

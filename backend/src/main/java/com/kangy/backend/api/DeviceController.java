@@ -5,6 +5,7 @@ import com.kangy.backend.api.dto.DeviceActionAckResponse;
 import com.kangy.backend.api.dto.DeviceActionEnqueueRequest;
 import com.kangy.backend.api.dto.DeviceActionEnqueueResponse;
 import com.kangy.backend.api.dto.DeviceActionPollResponse;
+import com.kangy.backend.api.dto.DevicePendingAction;
 import com.kangy.backend.api.dto.DeviceRegistrationRequest;
 import com.kangy.backend.api.dto.DeviceRegistrationResponse;
 import com.kangy.backend.api.dto.DeviceStatusGetResponse;
@@ -81,8 +82,25 @@ public class DeviceController {
       throw new UnauthorizedException("UNAUTHORIZED");
     }
 
+    int acked = 0;
+    if (request.ackedActionIds() != null && !request.ackedActionIds().isEmpty()) {
+      acked = deviceActionQueue.ack(deviceId, request.ackedActionIds());
+    }
+
     deviceStatusStore.append(deviceId, request);
-    return new DeviceStatusPublishResponse(deviceId, Instant.now().toString(), "ACCEPTED");
+
+    int actionLimit = request.actionLimit() == null ? 25 : Math.max(0, Math.min(request.actionLimit(), 100));
+    List<DevicePendingAction> actions = deviceActionQueue.poll(deviceId, actionLimit).stream()
+        .map(DeviceController::toPendingAction)
+        .toList();
+
+    return new DeviceStatusPublishResponse(
+        deviceId,
+        Instant.now().toString(),
+        "ACCEPTED",
+        actions,
+        acked
+    );
   }
 
   @GetMapping("/{deviceId}/status")
@@ -118,13 +136,9 @@ public class DeviceController {
       throw new UnauthorizedException("UNAUTHORIZED");
     }
 
-    List<DeviceActionPollResponse.PendingAction> actions = deviceActionQueue.poll(deviceId, limit).stream()
-        .map(a -> new DeviceActionPollResponse.PendingAction(
-            a.actionId(),
-            a.type(),
-            a.payload(),
-            a.createdAt()
-        ))
+    int safeLimit = Math.max(0, Math.min(limit, 100));
+    List<DevicePendingAction> actions = deviceActionQueue.poll(deviceId, safeLimit).stream()
+        .map(DeviceController::toPendingAction)
         .toList();
 
     return new DeviceActionPollResponse(
@@ -230,6 +244,15 @@ public class DeviceController {
 
   private static Number asNumber(Object v) {
     return (v instanceof Number n) ? n : null;
+  }
+
+  private static DevicePendingAction toPendingAction(DeviceActionQueue.PendingAction a) {
+    return new DevicePendingAction(
+        a.actionId(),
+        a.type(),
+        a.payload(),
+        a.createdAt()
+    );
   }
 
   private static String extractBearerToken(String authorization) {
