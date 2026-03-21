@@ -130,7 +130,12 @@ export function App() {
                 devices.map((d) => (
                   <tr key={d.deviceId}>
                     <td>
-                      <div style={{ fontWeight: 700 }}>{d.deviceId}</div>
+                      <div
+                        className="device-id-cell"
+                        title={`Registered device id (same value the device sent at registration; used in API paths): ${d.deviceId} · Registered: ${formatInstantMaybe(d.registeredAt)}`}
+                      >
+                        {d.deviceId}
+                      </div>
                     </td>
                     <td>{d.deviceType}</td>
                     <td className="muted">{formatInstantMaybe(d.registeredAt)}</td>

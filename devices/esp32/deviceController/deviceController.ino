@@ -5,6 +5,7 @@
  */
 
 #include <WiFi.h>
+#include <esp_mac.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
@@ -77,9 +78,16 @@ void ledService() {
   }
 }
 
+// Use eFuse / Wi-Fi STA MAC from the chip. WiFi.macAddress() is often all zeros until
+// after WiFi.begin(), so calling it from setup() before connect produced esp32-000000000000.
 static void buildDeviceIdFromMac() {
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
+  uint8_t mac[6] = {0};
+  esp_err_t err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  bool allZero =
+      (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5]) == 0;
+  if (err != ESP_OK || allZero) {
+    WiFi.macAddress(mac);
+  }
   char buf[32];
   snprintf(buf, sizeof(buf), "esp32-%02X%02X%02X%02X%02X%02X",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -276,6 +284,12 @@ void setup() {
   Serial.println();
   Serial.print("IP: ");
   Serial.println(WiFi.localIP());
+
+  if (gDeviceId == "esp32-000000000000") {
+    buildDeviceIdFromMac();
+    Serial.print("Device id (after WiFi up): ");
+    Serial.println(gDeviceId);
+  }
 
   while (!registerWithBackend()) {
     delay(3000);
