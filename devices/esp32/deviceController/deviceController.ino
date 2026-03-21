@@ -18,13 +18,15 @@ static const char* kApiBase = API_BASE_URL;
 
 const int kLedPin = 2;
 const int kServoPin = 13;
+/** Physical travel limit on this build. Backend/UI may send 0–180; values above this are clamped. */
+const int kServoMaxDegrees = 165;
 
 Servo gServo;
 String gDeviceId;
 String gToken;
 std::vector<String> gAckIds;
 
-const unsigned long kPollIntervalMs = 2000;
+const unsigned long kPollIntervalMs = 500;
 
 unsigned long gLastPollMs = 0;
 int gLastServoAngle = -1;
@@ -161,7 +163,7 @@ static void applyServo(JsonObjectConst payload) {
     return;
   }
   int deg = (int) payload["degrees"].as<float>();
-  deg = constrain(deg, 0, 180);
+  deg = constrain(deg, 0, kServoMaxDegrees);
   gServo.write(deg);
   if (deg != gLastServoAngle) {
     gLastServoAngle = deg;
