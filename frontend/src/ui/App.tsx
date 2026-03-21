@@ -1,11 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { listRegisteredDevices } from "../api/devices";
 import type { RegisteredDeviceDto } from "../api/types";
+import { DeviceOutputRows } from "./DeviceOutputRows";
+
+type OutputsPopoverState = {
+  deviceId: string;
+  outputs: string[];
+  top: number;
+  left: number;
+  width: number;
+};
 
 export function App() {
   const [devices, setDevices] = useState<RegisteredDeviceDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [outputsPopover, setOutputsPopover] = useState<OutputsPopoverState | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -23,6 +36,52 @@ export function App() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!outputsPopover) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOutputsPopover(null);
+        popoverTriggerRef.current?.focus();
+      }
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (popoverRef.current?.contains(t)) return;
+      if (popoverTriggerRef.current?.contains(t)) return;
+      setOutputsPopover(null);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [outputsPopover]);
+
+  const toggleOutputsPopover = (device: RegisteredDeviceDto, anchor: HTMLButtonElement) => {
+    if (outputsPopover?.deviceId === device.deviceId) {
+      setOutputsPopover(null);
+      popoverTriggerRef.current = null;
+      return;
+    }
+    popoverTriggerRef.current = anchor;
+    const width = 340;
+    const r = anchor.getBoundingClientRect();
+    const left = Math.min(Math.max(12, r.right - width), window.innerWidth - width - 12);
+    setOutputsPopover({
+      deviceId: device.deviceId,
+      outputs: [...(device.outputCapabilities ?? [])].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" }),
+      ),
+      top: r.bottom + 8,
+      left,
+      width,
+    });
+  };
 
   return (
     <div className="container">
@@ -57,12 +116,13 @@ export function App() {
                 <th>Registered</th>
                 <th>Inputs</th>
                 <th>Outputs</th>
+                <th style={{ width: 1 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {devices.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="muted">
+                  <td colSpan={6} className="muted">
                     No devices registered yet.
                   </td>
                 </tr>
@@ -92,6 +152,17 @@ export function App() {
                         )}
                       </div>
                     </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        aria-expanded={outputsPopover?.deviceId === d.deviceId}
+                        aria-haspopup="dialog"
+                        onClick={(e) => toggleOutputsPopover(d, e.currentTarget)}
+                      >
+                        Outputs…
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -103,6 +174,37 @@ export function App() {
           </div>
         )}
       </div>
+
+      {outputsPopover
+        ? createPortal(
+            <>
+              <div
+                className="popover-backdrop"
+                aria-hidden
+                onClick={() => {
+                  setOutputsPopover(null);
+                  popoverTriggerRef.current?.focus();
+                }}
+              />
+              <div
+                ref={popoverRef}
+                className="popover-surface"
+                role="dialog"
+                aria-label="Device outputs"
+                style={{
+                  top: outputsPopover.top,
+                  left: outputsPopover.left,
+                  width: outputsPopover.width,
+                }}
+              >
+                <h3>Output components</h3>
+                <div className="popover-device">{outputsPopover.deviceId}</div>
+                <DeviceOutputRows deviceId={outputsPopover.deviceId} outputs={outputsPopover.outputs} />
+              </div>
+            </>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

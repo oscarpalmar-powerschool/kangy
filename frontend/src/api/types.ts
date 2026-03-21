@@ -6,3 +6,13 @@ export type RegisteredDeviceDto = {
   outputCapabilities: string[];
 };
 
+export type DeviceActionEnqueueRequest = {
+  actions: Array<{ type: string; payload: Record<string, unknown> }>;
+};
+
+export type DeviceActionEnqueueResponse = {
+  deviceId: string;
+  enqueuedCount: number;
+  message: string;
+};
+

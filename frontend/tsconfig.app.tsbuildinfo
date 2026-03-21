@@ -1,1 +1,1 @@
-{"root":["./src/main.tsx","./src/api/devices.ts","./src/api/http.ts","./src/api/types.ts","./src/ui/app.tsx"],"version":"5.9.3"}
+{"root":["./src/main.tsx","./src/api/devices.ts","./src/api/http.ts","./src/api/types.ts","./src/ui/app.tsx","./src/ui/deviceoutputrows.tsx"],"version":"5.9.3"}

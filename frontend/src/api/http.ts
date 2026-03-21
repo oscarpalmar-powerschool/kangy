@@ -33,6 +33,33 @@ export async function apiGetJson<T>(path: string, init?: RequestInit): Promise<T
   return (await res.json()) as T;
 }
 
+export async function apiPostJson<TResponse, TBody = unknown>(
+  path: string,
+  body: TBody,
+  init?: RequestInit,
+): Promise<TResponse> {
+  const base =
+    window.__KANGY_CONFIG__?.apiBase ??
+    ((import.meta.env.VITE_API_BASE as string | undefined) ?? "");
+  const res = await fetch(`${base}${path}`, {
+    ...init,
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const msg = await safeReadError(res);
+    throw new Error(msg);
+  }
+
+  return (await res.json()) as TResponse;
+}
+
 async function safeReadError(res: Response): Promise<string> {
   const fallback = `${res.status} ${res.statusText}`.trim();
   try {
