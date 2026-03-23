@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { enqueueDeviceActions } from "../api/devices";
 
 type Props = {
   deviceId: string;
   outputs: string[];
 };
+
+type QueueAllFeed = { loading?: boolean; ok?: string; err?: string };
+
+type SendFn = () => Promise<void>;
 
 export function DeviceOutputRows({ deviceId, outputs }: Props) {
   if (outputs.length === 0) {
@@ -15,39 +19,117 @@ export function DeviceOutputRows({ deviceId, outputs }: Props) {
     );
   }
 
+  const hasLed = outputs.some((c) => c.toLowerCase() === "led");
+  const hasServo = outputs.some((c) => c.toLowerCase() === "servo");
+
+  const ledSendRef = useRef<SendFn | null>(null);
+  const servoSendRef = useRef<SendFn | null>(null);
+
+  const [queueAllFeed, setQueueAllFeed] = useState<QueueAllFeed>({});
+
+  const queueAllOutputs = async () => {
+    if (!hasLed && !hasServo) return;
+    setQueueAllFeed({ loading: true });
+    try {
+      const ledIdx = outputs.findIndex((c) => c.toLowerCase() === "led");
+      const servoIdx = outputs.findIndex((c) => c.toLowerCase() === "servo");
+      const toRun: Array<{ idx: number; fn: SendFn }> = [];
+      if (ledIdx !== -1 && ledSendRef.current) toRun.push({ idx: ledIdx, fn: ledSendRef.current });
+      if (servoIdx !== -1 && servoSendRef.current)
+        toRun.push({ idx: servoIdx, fn: servoSendRef.current });
+      toRun.sort((a, b) => a.idx - b.idx);
+
+      for (const { fn } of toRun) {
+        await fn();
+      }
+
+      setQueueAllFeed({ ok: "Queued outputs." });
+    } catch (e) {
+      setQueueAllFeed({ err: e instanceof Error ? e.message : "Failed to queue outputs" });
+    } finally {
+      setQueueAllFeed((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
   return (
-    <ul className="popover-output-list">
-      {outputs.map((cap) => {
-        const key = cap.toLowerCase();
-        if (key === "led") {
-          return <LedOutputRow key={cap} deviceId={deviceId} cap={cap} />;
-        }
-        if (key === "servo") {
-          return <ServoOutputRow key={cap} deviceId={deviceId} cap={cap} />;
-        }
-        return <UnknownOutputRow key={cap} cap={cap} />;
-      })}
-    </ul>
+    <>
+      <ul className="popover-output-list">
+        {outputs.map((cap) => {
+          const key = cap.toLowerCase();
+          if (key === "led") {
+            return (
+              <LedOutputRow
+                key={cap}
+                deviceId={deviceId}
+                cap={cap}
+                registerSend={(fn) => {
+                  ledSendRef.current = fn;
+                }}
+              />
+            );
+          }
+          if (key === "servo") {
+            return (
+              <ServoOutputRow
+                key={cap}
+                deviceId={deviceId}
+                cap={cap}
+                registerSend={(fn) => {
+                  servoSendRef.current = fn;
+                }}
+              />
+            );
+          }
+          return <UnknownOutputRow key={cap} cap={cap} />;
+        })}
+      </ul>
+
+      <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => void queueAllOutputs()}
+          disabled={queueAllFeed.loading || (!hasLed && !hasServo)}
+          aria-disabled={queueAllFeed.loading || (!hasLed && !hasServo)}
+        >
+          {queueAllFeed.loading ? "Queueing all…" : "Queue all outputs"}
+        </button>
+        {queueAllFeed.err ? <div className="popover-row-msg err">{queueAllFeed.err}</div> : null}
+        {queueAllFeed.ok ? <div className="popover-row-msg ok">{queueAllFeed.ok}</div> : null}
+      </div>
+    </>
   );
 }
 
 type RowFeed = { loading?: boolean; ok?: string; err?: string };
 
-function LedOutputRow({ deviceId, cap }: { deviceId: string; cap: string }) {
+function LedOutputRow({
+  deviceId,
+  cap,
+  registerSend,
+}: {
+  deviceId: string;
+  cap: string;
+  registerSend: (send: SendFn) => void;
+}) {
   const [mode, setMode] = useState<"on" | "off" | "blink">("off");
+  const modeRef = useRef(mode);
   const [feed, setFeed] = useState<RowFeed>({});
 
   const send = async () => {
     setFeed({ loading: true });
     try {
+      const modeToSend = modeRef.current;
       await enqueueDeviceActions(deviceId, [
-        { type: "led.command", payload: { id: "led", mode } },
+        { type: "led.command", payload: { id: "led", mode: modeToSend } },
       ]);
       setFeed({ ok: "Queued" });
     } catch (e) {
       setFeed({ err: e instanceof Error ? e.message : "Failed to queue action" });
     }
   };
+
+  registerSend(send);
 
   return (
     <li className="popover-output-item">
@@ -73,7 +155,10 @@ function LedOutputRow({ deviceId, cap }: { deviceId: string; cap: string }) {
                   mode === value ? "mode-segment__btn mode-segment__btn--active" : "mode-segment__btn"
                 }
                 aria-pressed={mode === value}
-                onClick={() => setMode(value)}
+                onClick={() => {
+                  modeRef.current = value;
+                  setMode(value);
+                }}
               >
                 {label}
               </button>
@@ -90,27 +175,40 @@ function LedOutputRow({ deviceId, cap }: { deviceId: string; cap: string }) {
   );
 }
 
-function ServoOutputRow({ deviceId, cap }: { deviceId: string; cap: string }) {
+function ServoOutputRow({
+  deviceId,
+  cap,
+  registerSend,
+}: {
+  deviceId: string;
+  cap: string;
+  registerSend: (send: SendFn) => void;
+}) {
   const [deg, setDeg] = useState(90);
+  const degRef = useRef(deg);
   const [feed, setFeed] = useState<RowFeed>({});
 
   const setDegrees = (n: number) => {
     if (!Number.isFinite(n)) return;
     const v = Math.round(Math.min(180, Math.max(0, n)));
     setDeg(v);
+    degRef.current = v;
   };
 
   const send = async () => {
     setFeed({ loading: true });
     try {
+      const degToSend = degRef.current;
       await enqueueDeviceActions(deviceId, [
-        { type: "servo.setPosition", payload: { id: "servo", degrees: deg } },
+        { type: "servo.setPosition", payload: { id: "servo", degrees: degToSend } },
       ]);
       setFeed({ ok: "Queued" });
     } catch (e) {
       setFeed({ err: e instanceof Error ? e.message : "Failed to queue action" });
     }
   };
+
+  registerSend(send);
 
   return (
     <li className="popover-output-item">
