@@ -20,7 +20,16 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import com.google.cloud.texttospeech.v1.AudioConfig;
+import com.google.cloud.texttospeech.v1.AudioEncoding;
+import com.google.cloud.texttospeech.v1.SsmlVoiceGender;
+import com.google.cloud.texttospeech.v1.SynthesisInput;
+import com.google.cloud.texttospeech.v1.SynthesizeSpeechResponse;
+import com.google.cloud.texttospeech.v1.TextToSpeechClient;
+import com.google.cloud.texttospeech.v1.VoiceSelectionParams;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,6 +54,57 @@ public class DeviceController {
     this.deviceRegistry = deviceRegistry;
     this.deviceStatusStore = deviceStatusStore;
     this.deviceActionQueue = deviceActionQueue;
+  }
+
+  @GetMapping("/speak")
+  public ResponseEntity<byte[]> speak() throws Exception {
+    try (TextToSpeechClient client = TextToSpeechClient.create()) {
+      SynthesisInput input = SynthesisInput.newBuilder()
+          .setText("Hello fools, this is kangy live from google cloud")
+          .build();
+
+      VoiceSelectionParams voice = VoiceSelectionParams.newBuilder()
+          .setLanguageCode("en-US")
+          .setSsmlGender(SsmlVoiceGender.NEUTRAL)
+          .build();
+
+      AudioConfig audioConfig = AudioConfig.newBuilder()
+          .setAudioEncoding(AudioEncoding.LINEAR16)
+          .setSampleRateHertz(16000)
+          .build();
+
+      SynthesizeSpeechResponse response = client.synthesizeSpeech(input, voice, audioConfig);
+      byte[] pcm = response.getAudioContent().toByteArray();
+      byte[] wav = buildWav(pcm, 16000, 1, 16);
+
+      HttpHeaders headers = new HttpHeaders();
+      headers.setContentType(MediaType.parseMediaType("audio/wav"));
+      headers.setContentLength(wav.length);
+
+      return ResponseEntity.ok().headers(headers).body(wav);
+    }
+  }
+
+  private static byte[] buildWav(byte[] pcm, int sampleRate, int channels, int bitsPerSample) {
+    int byteRate = sampleRate * channels * bitsPerSample / 8;
+    int blockAlign = channels * bitsPerSample / 8;
+    java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(44 + pcm.length)
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+    buf.put(new byte[]{'R', 'I', 'F', 'F'});
+    buf.putInt(36 + pcm.length);
+    buf.put(new byte[]{'W', 'A', 'V', 'E'});
+    buf.put(new byte[]{'f', 'm', 't', ' '});
+    buf.putInt(16);
+    buf.putShort((short) 1);
+    buf.putShort((short) channels);
+    buf.putInt(sampleRate);
+    buf.putInt(byteRate);
+    buf.putShort((short) blockAlign);
+    buf.putShort((short) bitsPerSample);
+    buf.put(new byte[]{'d', 'a', 't', 'a'});
+    buf.putInt(pcm.length);
+    buf.put(pcm);
+    return buf.array();
   }
 
   @PostMapping(value = "/register", consumes = MediaType.APPLICATION_JSON_VALUE)

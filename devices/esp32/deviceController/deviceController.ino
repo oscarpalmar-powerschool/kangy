@@ -1,5 +1,5 @@
 /*
- * ESP32 device controller: registers with Kangy backend (servo + LED outputs),
+ * ESP32 device controller: registers with Kangy backend (servo + LED + speaker outputs),
  * then uses a single POST /status round-trip per interval to ack completed actions
  * and receive new ones (minimal traffic vs separate GET + ack).
  */
@@ -9,8 +9,14 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
+#include <driver/i2s.h>
 #include <vector>
 #include "config_local.h"
+
+#define I2S_BCLK  26
+#define I2S_LRCLK 25
+#define I2S_DOUT  22
+#define WAV_HEADER_SIZE 44
 
 static const char* kSsid = WIFI_SSID;
 static const char* kPassword = WIFI_PASSWORD;
@@ -122,6 +128,7 @@ bool registerWithBackend() {
   JsonArray outCaps = req.createNestedArray("outputCapabilities");
   outCaps.add("servo");
   outCaps.add("led");
+  outCaps.add("speaker");
 
   String body;
   serializeJson(req, body);
@@ -195,6 +202,51 @@ static void applyLed(JsonObjectConst payload) {
   }
 }
 
+static void applySpeaker(JsonObjectConst payload) {
+  const char* id = payload["id"];
+  if (!id || strcmp(id, "speaker") != 0) {
+    return;
+  }
+  String url = String(kApiBase) + "/speak";
+  Serial.printf("Speaker -> %s\n", url.c_str());
+
+  HTTPClient http;
+  http.begin(url);
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    Serial.printf("Speaker: HTTP %d\n", code);
+    http.end();
+    return;
+  }
+
+  WiFiClient* stream = http.getStreamPtr();
+  int remaining = http.getSize();
+
+  // skip WAV header
+  uint8_t skip[WAV_HEADER_SIZE];
+  int skipped = 0;
+  while (skipped < WAV_HEADER_SIZE && (remaining < 0 || skipped < remaining)) {
+    if (stream->available()) {
+      skip[skipped++] = stream->read();
+    }
+  }
+  if (remaining > 0) remaining -= WAV_HEADER_SIZE;
+
+  // stream PCM to I2S
+  uint8_t buf[512];
+  while (remaining != 0) {
+    int toRead = (remaining > 0) ? min((int)sizeof(buf), remaining) : (int)sizeof(buf);
+    int got = stream->readBytes(buf, toRead);
+    if (got <= 0) break;
+    size_t written;
+    i2s_write(I2S_NUM_0, buf, got, &written, portMAX_DELAY);
+    if (remaining > 0) remaining -= got;
+  }
+
+  http.end();
+  Serial.println("Speaker done");
+}
+
 static void applyAction(JsonObjectConst action) {
   const char* type = action["type"];
   JsonObjectConst payload = action["payload"];
@@ -205,6 +257,8 @@ static void applyAction(JsonObjectConst action) {
     applyServo(payload);
   } else if (strcmp(type, "led.command") == 0) {
     applyLed(payload);
+  } else if (strcmp(type, "tts.speak") == 0) {
+    applySpeaker(payload);
   } else {
     Serial.printf("Unknown action type: %s (will still ack)\n", type);
   }
@@ -272,6 +326,26 @@ void setup() {
   digitalWrite(kLedPin, LOW);
 
   gServo.attach(kServoPin);
+
+  i2s_config_t i2sCfg = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+    .sample_rate = 16000,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+    .intr_alloc_flags = 0,
+    .dma_buf_count = 8,
+    .dma_buf_len = 512,
+    .use_apll = false
+  };
+  i2s_pin_config_t i2sPins = {
+    .bck_io_num   = I2S_BCLK,
+    .ws_io_num    = I2S_LRCLK,
+    .data_out_num = I2S_DOUT,
+    .data_in_num  = -1
+  };
+  i2s_driver_install(I2S_NUM_0, &i2sCfg, 0, NULL);
+  i2s_set_pin(I2S_NUM_0, &i2sPins);
 
   WiFi.mode(WIFI_STA);
   buildDeviceIdFromMac();

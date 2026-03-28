@@ -21,22 +21,27 @@ export function DeviceOutputRows({ deviceId, outputs }: Props) {
 
   const hasLed = outputs.some((c) => c.toLowerCase() === "led");
   const hasServo = outputs.some((c) => c.toLowerCase() === "servo");
+  const hasSpeaker = outputs.some((c) => c.toLowerCase() === "speaker");
 
   const ledSendRef = useRef<SendFn | null>(null);
   const servoSendRef = useRef<SendFn | null>(null);
+  const speakerSendRef = useRef<SendFn | null>(null);
 
   const [queueAllFeed, setQueueAllFeed] = useState<QueueAllFeed>({});
 
   const queueAllOutputs = async () => {
-    if (!hasLed && !hasServo) return;
+    if (!hasLed && !hasServo && !hasSpeaker) return;
     setQueueAllFeed({ loading: true });
     try {
       const ledIdx = outputs.findIndex((c) => c.toLowerCase() === "led");
       const servoIdx = outputs.findIndex((c) => c.toLowerCase() === "servo");
+      const speakerIdx = outputs.findIndex((c) => c.toLowerCase() === "speaker");
       const toRun: Array<{ idx: number; fn: SendFn }> = [];
       if (ledIdx !== -1 && ledSendRef.current) toRun.push({ idx: ledIdx, fn: ledSendRef.current });
       if (servoIdx !== -1 && servoSendRef.current)
         toRun.push({ idx: servoIdx, fn: servoSendRef.current });
+      if (speakerIdx !== -1 && speakerSendRef.current)
+        toRun.push({ idx: speakerIdx, fn: speakerSendRef.current });
       toRun.sort((a, b) => a.idx - b.idx);
 
       for (const { fn } of toRun) {
@@ -80,6 +85,18 @@ export function DeviceOutputRows({ deviceId, outputs }: Props) {
               />
             );
           }
+          if (key === "speaker") {
+            return (
+              <SpeakerOutputRow
+                key={cap}
+                deviceId={deviceId}
+                cap={cap}
+                registerSend={(fn) => {
+                  speakerSendRef.current = fn;
+                }}
+              />
+            );
+          }
           return <UnknownOutputRow key={cap} cap={cap} />;
         })}
       </ul>
@@ -89,8 +106,8 @@ export function DeviceOutputRows({ deviceId, outputs }: Props) {
           type="button"
           className="btn btn-sm"
           onClick={() => void queueAllOutputs()}
-          disabled={queueAllFeed.loading || (!hasLed && !hasServo)}
-          aria-disabled={queueAllFeed.loading || (!hasLed && !hasServo)}
+          disabled={queueAllFeed.loading || (!hasLed && !hasServo && !hasSpeaker)}
+          aria-disabled={queueAllFeed.loading || (!hasLed && !hasServo && !hasSpeaker)}
         >
           {queueAllFeed.loading ? "Queueing all…" : "Queue all outputs"}
         </button>
@@ -248,6 +265,48 @@ function ServoOutputRow({
   );
 }
 
+function SpeakerOutputRow({
+  deviceId,
+  cap,
+  registerSend,
+}: {
+  deviceId: string;
+  cap: string;
+  registerSend: (send: SendFn) => void;
+}) {
+  const [feed, setFeed] = useState<RowFeed>({});
+
+  const send = async () => {
+    setFeed({ loading: true });
+    try {
+      await enqueueDeviceActions(deviceId, [
+        { type: "tts.speak", payload: { id: "speaker" } },
+      ]);
+      setFeed({ ok: "Queued" });
+    } catch (e) {
+      setFeed({ err: e instanceof Error ? e.message : "Failed to queue action" });
+    }
+  };
+
+  registerSend(send);
+
+  return (
+    <li className="popover-output-item">
+      <div className="popover-output-head">
+        <span>{formatOutputCapabilityLabel(cap)}</span>
+        <span className="popover-output-kind">{cap}</span>
+      </div>
+      <div className="popover-output-controls">
+        <button type="button" className="btn btn-sm" onClick={() => void send()} disabled={!!feed.loading}>
+          {feed.loading ? "Sending…" : "Queue"}
+        </button>
+      </div>
+      {feed.err ? <div className="popover-row-msg err">{feed.err}</div> : null}
+      {feed.ok ? <div className="popover-row-msg ok">{feed.ok}</div> : null}
+    </li>
+  );
+}
+
 function UnknownOutputRow({ cap }: { cap: string }) {
   return (
     <li className="popover-output-item">
@@ -263,5 +322,6 @@ function UnknownOutputRow({ cap }: { cap: string }) {
 function formatOutputCapabilityLabel(cap: string): string {
   const lower = cap.toLowerCase();
   if (lower === "led") return "LED";
+  if (lower === "speaker") return "Speaker";
   return cap.length ? cap.charAt(0).toUpperCase() + cap.slice(1).toLowerCase() : cap;
 }
