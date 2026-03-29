@@ -1,5 +1,6 @@
-# Backend (Spring Boot): run only when backend/ changed. Build image, push to ECR, deploy to ECS.
-name: Backend CI / Deploy
+# Backend CI: runs on every push to main or tag when backend/ files change.
+# Lint and tests only — no deploy. See backend-deploy.yml for deployments.
+name: Backend CI
 
 on:
   push:
@@ -7,16 +8,10 @@ on:
     tags: ['v*']
 
 jobs:
-  deploy:
+  ci:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY_BACKEND || 'backend' }}
-      ECS_CLUSTER: ${{ vars.ECS_CLUSTER || 'my-cluster' }}
-      ECS_SERVICE: ${{ vars.ECS_SERVICE_BACKEND || 'backend-service' }}
 
     steps:
       - name: Checkout
@@ -69,35 +64,3 @@ jobs:
       - name: Lint and test
         if: steps.filter.outputs.backend == 'true'
         run: mvn -f backend/pom.xml verify
-
-      - name: Configure AWS credentials
-        if: steps.filter.outputs.backend == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-        # If not using OIDC, use: aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}, aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-      - name: Login to Amazon ECR
-        if: steps.filter.outputs.backend == 'true'
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Docker image
-        if: steps.filter.outputs.backend == 'true'
-        env:
-          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f backend/Dockerfile backend/
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-      - name: Deploy to ECS
-        if: steps.filter.outputs.backend == 'true'
-        run: |
-          aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service $ECS_SERVICE \
-            --force-new-deployment \
-            --region $AWS_REGION

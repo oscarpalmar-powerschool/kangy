@@ -1,0 +1,101 @@
+# Backend Deploy: manually triggered from the GitHub Actions UI.
+# Development: deploy from main branch or any tag.
+# Production:  deploy from a tag only (enforced below).
+name: Backend Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - development
+          - production
+      ref:
+        description: 'Branch or tag to deploy (e.g. main, v1.2.3)'
+        required: true
+        default: 'main'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Enables GitHub Environment protection rules and scoped secrets/vars.
+    # Create "development" and "production" environments in repo Settings → Environments.
+    # Set CLOUD_RUN_SERVICE per environment (e.g. kangy-api-dev / kangy-api).
+    # Add a required-reviewer rule on "production" for an extra human gate if desired.
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write  # required for Workload Identity Federation
+    env:
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'project-4d02db76-5b1d-4288-b08' }}
+      AR_REPOSITORY: ${{ vars.AR_REPOSITORY || 'kangy' }}
+      IMAGE_NAME: kangy-api
+
+    steps:
+      - name: Validate ref for production
+        if: inputs.environment == 'production'
+        run: |
+          if [[ ! "${{ inputs.ref }}" =~ ^v[0-9] ]]; then
+            echo "ERROR: Production deploys must use a version tag (e.g. v1.2.3). Got: ${{ inputs.ref }}"
+            exit 1
+          fi
+
+      - name: Checkout ${{ inputs.ref }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set image tag
+        id: tag
+        run: |
+          if [[ "${{ inputs.ref }}" =~ ^v[0-9] ]]; then
+            echo "value=${{ inputs.ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "value=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Lint and test
+        run: mvn -f backend/pom.xml verify
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
+        env:
+          IMAGE: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ env.IMAGE_NAME }}
+          IMAGE_TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          docker build \
+            -t $IMAGE:$IMAGE_TAG \
+            -t $IMAGE:latest \
+            -f backend/Dockerfile backend/
+          docker push $IMAGE:$IMAGE_TAG
+          docker push $IMAGE:latest
+
+      - name: Deploy to Cloud Run
+        env:
+          IMAGE: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ env.IMAGE_NAME }}
+          IMAGE_TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          gcloud run deploy ${{ vars.CLOUD_RUN_SERVICE }} \
+            --image $IMAGE:$IMAGE_TAG \
+            --region ${{ env.GCP_REGION }} \
+            --project ${{ env.GCP_PROJECT_ID }} \
+            --quiet

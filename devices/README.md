@@ -37,3 +37,7 @@ mvn -f backend/pom.xml checkstyle:check
 # Run both (what CI will do)
 
 mvn -f backend/pom.xml verify
+
+projects/223647245649/locations/global/workloadIdentityPools/github-actions/providers/github
+
+github-actions@project-4d02db76-5b1d-4288-b08.iam.gserviceaccount.com
