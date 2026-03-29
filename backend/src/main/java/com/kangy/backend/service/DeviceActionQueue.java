@@ -51,7 +51,9 @@ public class DeviceActionQueue {
       for (PendingAction a : q) {
         out.add(a);
         i++;
-        if (i >= safeLimit) break;
+        if (i >= safeLimit) {
+          break;
+        }
       }
       return List.copyOf(out);
     }

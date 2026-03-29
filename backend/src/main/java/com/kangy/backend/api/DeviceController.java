@@ -60,7 +60,7 @@ public class DeviceController {
   public ResponseEntity<byte[]> speak() throws Exception {
     try (TextToSpeechClient client = TextToSpeechClient.create()) {
       SynthesisInput input = SynthesisInput.newBuilder()
-          .setText("Hello fools, this is kangy live from google cloud")
+          .setText("Hello Nancy, is not this better?")
           .build();
 
       VoiceSelectionParams voice = VoiceSelectionParams.newBuilder()

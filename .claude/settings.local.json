@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./mvnw test:*)",
+      "Bash(mvn -f \"c:/Users/14165/projects/kangy/backend/pom.xml\" test)",
+      "Bash(mvn -f \"c:/Users/14165/projects/kangy/backend/pom.xml\" checkstyle:check)"
+    ]
+  }
+}

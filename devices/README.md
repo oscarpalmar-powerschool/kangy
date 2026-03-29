@@ -14,12 +14,26 @@ devices/
 
 ## Per-device notes
 
-| Device   | Typical stack     | How to run / flash |
-|----------|-------------------|---------------------|
-| **esp32**  | Arduino (.ino), ESP-IDF, PlatformIO | Arduino IDE: open `devices/esp32/<sketch>/` and upload. Or `pio run -d devices/esp32` if using PlatformIO. |
-| **xiao**   | Arduino (.ino), PlatformIO | Same as ESP32; select board “Seeed XIAO” (or SAMD21/SAMD51 depending on model). |
-| **rpi**    | Python, Node, etc. | Copy/clone to Pi, install deps, run as script or systemd service. Optionally build a package or use your own deploy script. |
+| Device    | Typical stack                       | How to run / flash                                                                                                          |
+| --------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **esp32** | Arduino (.ino), ESP-IDF, PlatformIO | Arduino IDE: open `devices/esp32/<sketch>/` and upload. Or `pio run -d devices/esp32` if using PlatformIO.                  |
+| **xiao**  | Arduino (.ino), PlatformIO          | Same as ESP32; select board “Seeed XIAO” (or SAMD21/SAMD51 depending on model).                                             |
+| **rpi**   | Python, Node, etc.                  | Copy/clone to Pi, install deps, run as script or systemd service. Optionally build a package or use your own deploy script. |
 
 ## Optional: `shared/`
 
 Use `devices/shared/` for things that apply to all device types but aren’t source code (e.g. API contract docs, JSON schema for device↔backend messages). Actual code sharing across Arduino and RPi is limited by language; keep protocol and docs in `shared/` and implement per device in `esp32/`, `xiao/`, `rpi/`.
+
+## Lint/Test cases
+
+# Run tests only
+
+mvn -f backend/pom.xml test
+
+# Run lint only
+
+mvn -f backend/pom.xml checkstyle:check
+
+# Run both (what CI will do)
+
+mvn -f backend/pom.xml verify
