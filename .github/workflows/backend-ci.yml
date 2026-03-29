@@ -58,6 +58,18 @@ jobs:
               - 'backend/**'
           base: ${{ steps.base.outputs.ref }}
 
+      - name: Set up Java
+        if: steps.filter.outputs.backend == 'true'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Lint and test
+        if: steps.filter.outputs.backend == 'true'
+        run: mvn -f backend/pom.xml verify
+
       - name: Configure AWS credentials
         if: steps.filter.outputs.backend == 'true'
         uses: aws-actions/configure-aws-credentials@v4
