@@ -1,7 +1,7 @@
-# Backend Deploy: manually triggered from the GitHub Actions UI.
+# Frontend Deploy: manually triggered from the GitHub Actions UI.
 # Development: deploy from main branch or any tag.
 # Production:  deploy from a tag only (enforced below).
-name: Backend Deploy
+name: Frontend Deploy
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     # Enables GitHub Environment protection rules and scoped secrets/vars.
     # Create "development" and "production" environments in repo Settings → Environments.
-    # Set CLOUD_RUN_SERVICE per environment (e.g. kangy-api-dev / kangy-api).
+    # Set CLOUD_RUN_SERVICE per environment (e.g. kangy-web-dev / kangy-web).
     # Add a required-reviewer rule on "production" for an extra human gate if desired.
     environment: ${{ inputs.environment }}
     permissions:
@@ -33,7 +33,7 @@ jobs:
       GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'project-4d02db76-5b1d-4288-b08' }}
       AR_REPOSITORY: ${{ vars.AR_REPOSITORY || 'kangy' }}
-      IMAGE_NAME: kangy-api
+      IMAGE_NAME: kangy-web
 
     steps:
       - name: Validate ref for production
@@ -58,15 +58,18 @@ jobs:
             echo "value=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: maven
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Lint and test
-        run: mvn -f backend/pom.xml verify
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -85,24 +88,26 @@ jobs:
           docker build \
             -t $IMAGE:$IMAGE_TAG \
             -t $IMAGE:latest \
-            -f backend/Dockerfile backend/
+            -f frontend/Dockerfile frontend/
           docker push $IMAGE:$IMAGE_TAG
           docker push $IMAGE:latest
 
       - name: Deploy to Cloud Run
-        # CLOUD_RUN_SERVICE is read from the GitHub Environment variable (Settings → Environments →
-        # development/production). This was the original approach. The frontend deploy workflow
-        # instead hardcodes the service name inline because both workflows share the same GitHub
-        # Environments, and a GitHub Environment can only hold one value per variable name —
-        # so CLOUD_RUN_SERVICE can't satisfy both backend and frontend at the same time.
-        # The backend keeps the env-var approach (it was here first); the frontend hardcodes its
-        # own names to avoid the collision. See frontend-deploy.yml for that pattern.
         env:
           IMAGE: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.AR_REPOSITORY }}/${{ env.IMAGE_NAME }}
           IMAGE_TAG: ${{ steps.tag.outputs.value }}
+          # CLOUD_RUN_SERVICE is hardcoded here (not read from a GitHub Environment variable)
+          # because this repo's "development" and "production" environments are shared between
+          # the backend and frontend deploy workflows. A GitHub Environment can only hold one
+          # value per variable name, so vars.CLOUD_RUN_SERVICE is already taken by the backend
+          # (kangy-api-dev / kangy-api). Rather than create separate environments just for the
+          # frontend, the service names are resolved inline here. See backend-deploy.yml for
+          # the env-var approach and why it differs.
+          CLOUD_RUN_SERVICE: ${{ inputs.environment == 'production' && 'kangy-web' || 'kangy-web-dev' }}
         run: |
-          gcloud run deploy ${{ vars.CLOUD_RUN_SERVICE }} \
+          gcloud run deploy $CLOUD_RUN_SERVICE \
             --image $IMAGE:$IMAGE_TAG \
             --region ${{ env.GCP_REGION }} \
             --project ${{ env.GCP_PROJECT_ID }} \
+            --port 80 \
             --quiet
