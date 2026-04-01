@@ -20,7 +20,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# ESP32 config
-devices/esp32/deviceController/config_local.h
+# ESP32 config (all env-specific and active config files contain credentials)
+devices/esp32/deviceController/config.h
+devices/esp32/deviceController/config.local.h
 devices/esp32/deviceController/config.dev.h
 devices/esp32/deviceController/config.prod.h

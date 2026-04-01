@@ -11,7 +11,7 @@
 #include <ESP32Servo.h>
 #include <driver/i2s.h>
 #include <vector>
-#include "config_local.h"
+#include "config.h"
 
 #define I2S_BCLK  26
 #define I2S_LRCLK 25
