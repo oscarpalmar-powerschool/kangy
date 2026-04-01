@@ -95,8 +95,16 @@ deploy, but the region and project must match.
 | `kangy-api` | production | version tag only (e.g. `v1.2.3`) |
 
 **Authentication note:** By default Cloud Run requires authentication.
-- Development: set to **Allow unauthenticated invocations** (Cloud Run → service → Edit & Deploy New Revision → Security tab) for easier testing
-- Production: keep authentication enabled
+- Development: allow unauthenticated invocations via gcloud (the GCP Console UI for this setting
+  moves around between releases — the CLI is more reliable):
+  ```bash
+  gcloud run services add-iam-policy-binding kangy-api-dev \
+    --region us-central1 \
+    --project project-4d02db76-5b1d-4288-b08 \
+    --member="allUsers" \
+    --role="roles/run.invoker"
+  ```
+- Production: keep authentication enabled (do not run the above for `kangy-api`)
 
 ---
 

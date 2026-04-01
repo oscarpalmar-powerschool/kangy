@@ -25,14 +25,14 @@ Deployment targets:
 
 ### Shared infrastructure — already done
 
-The following were created for the backend and are reused:
+The following were created for the backend and are reused as-is:
 
 - **Artifact Registry repository** — `kangy` in `us-central1`
 - **Service account** — `github-actions@project-4d02db76-5b1d-4288-b08.iam.gserviceaccount.com`
 - **Workload Identity Pool/Provider** — `github-actions` / `github`
 - **Repository secrets** — `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`
 
-No new GCP resources are needed for these.
+No new GCP resources are needed.
 
 ---
 
@@ -48,53 +48,20 @@ Two services — one per environment. Created automatically on first deploy.
 **Port note:** The frontend container runs nginx on port 80. The deploy workflow passes
 `--port 80` to `gcloud run deploy` so Cloud Run routes traffic to the correct port.
 
-**Authentication note:**
-- Development: set to **Allow unauthenticated invocations** (Cloud Run → service → Edit & Deploy New Revision → Security tab)
-- Production: keep authentication enabled
-
-**Runtime environment variable (optional):**
-To point the SPA at the backend API, set `KANGY_API_BASE` on the Cloud Run service:
-- Cloud Run → service → Edit & Deploy New Revision → Variables & Secrets tab
-- Example: `KANGY_API_BASE=https://kangy-api-dev-<hash>-uc.a.run.app`
-- If left unset, the frontend assumes the API is same-origin
-
 ---
 
 ## GitHub Setup (one-time)
 
-### Add `CLOUD_RUN_SERVICE` to existing GitHub Environments
+No additional GitHub configuration is needed. The `GCP_WORKLOAD_IDENTITY_PROVIDER` and
+`GCP_SERVICE_ACCOUNT` repository secrets are already set from the backend.
 
-The `development` and `production` environments already exist. Add the frontend service name
-as a variable in each:
-
-**Settings → Environments → development → Environment variables:**
-
-| Variable | Value |
-|----------|-------|
-| `CLOUD_RUN_SERVICE` | `kangy-web-dev` |
-
-> This environment already has `CLOUD_RUN_SERVICE = kangy-api-dev` for the backend.
-> GitHub environment variables are scoped per-workflow via the `environment:` key,
-> so both values can coexist — each workflow reads only its own `CLOUD_RUN_SERVICE`.
-> **However**, each environment can only store one value per variable name.
-> If the backend and frontend share the same GitHub Environment, you'll need to either:
-> - Use separate GitHub Environments (e.g. `frontend-development`, `frontend-production`), or
-> - Hardcode the Cloud Run service names directly in `frontend-deploy.yml`
-
-The simplest approach: hardcode in the workflow. Update `frontend-deploy.yml` to replace
-`${{ vars.CLOUD_RUN_SERVICE }}` with the literal service name per environment:
-
-```yaml
-- name: Deploy to Cloud Run
-  run: |
-    SERVICE=$([ "${{ inputs.environment }}" = "production" ] && echo "kangy-web" || echo "kangy-web-dev")
-    gcloud run deploy $SERVICE \
-      --image $IMAGE:$IMAGE_TAG \
-      --region ${{ env.GCP_REGION }} \
-      --project ${{ env.GCP_PROJECT_ID }} \
-      --port 80 \
-      --quiet
-```
+**Note on `CLOUD_RUN_SERVICE`:** The backend deploy workflow reads the target service name
+from a `CLOUD_RUN_SERVICE` GitHub Environment variable. The frontend deploy workflow instead
+hardcodes the service names (`kangy-web-dev` / `kangy-web`) directly in the workflow file.
+This is intentional — the `development` and `production` GitHub Environments are shared
+between both workflows, and a GitHub Environment can only hold one value per variable name,
+so both workflows cannot read `CLOUD_RUN_SERVICE` and get different values. See comments in
+both deploy workflow files for the full explanation.
 
 ---
 
@@ -106,7 +73,81 @@ The simplest approach: hardcode in the workflow. Update `frontend-deploy.yml` to
 | `GCP_PROJECT_ID` | Hardcoded default | `project-4d02db76-5b1d-4288-b08` |
 | `AR_REPOSITORY` | Hardcoded default | `kangy` |
 | `IMAGE_NAME` | Hardcoded in workflow | `kangy-web` |
-| `CLOUD_RUN_SERVICE` | GitHub Environment variable | `kangy-web-dev` / `kangy-web` |
+| `CLOUD_RUN_SERVICE` | Hardcoded in workflow | `kangy-web-dev` / `kangy-web` |
+
+---
+
+## First Deploy Checklist
+
+These steps are required once after the very first deploy to each environment. The Cloud Run
+services are created by the deploy workflow; the steps below configure them afterward.
+
+### 1. Trigger the deploy
+
+GitHub → **Actions** → **Frontend Deploy** → **Run workflow**
+- environment: `development`
+- ref: `main`
+
+### 2. Allow unauthenticated access on the frontend service
+
+The GCP Console UI for this setting moves around between releases — the CLI is more reliable:
+
+```bash
+gcloud run services add-iam-policy-binding kangy-web-dev \
+  --region us-central1 \
+  --project project-4d02db76-5b1d-4288-b08 \
+  --member="allUsers" \
+  --role="roles/run.invoker"
+```
+
+Do **not** run this for `kangy-web` (production).
+
+Verify it took effect:
+```bash
+gcloud run services get-iam-policy kangy-web-dev \
+  --region us-central1 \
+  --project project-4d02db76-5b1d-4288-b08
+```
+You should see `allUsers` with `roles/run.invoker` in the output.
+
+### 3. Allow unauthenticated access on the backend service
+
+The frontend calls the backend API from the browser — the browser has no GCP identity token,
+so the backend dev service also needs to allow unauthenticated invocations:
+
+```bash
+gcloud run services add-iam-policy-binding kangy-api-dev \
+  --region us-central1 \
+  --project project-4d02db76-5b1d-4288-b08 \
+  --member="allUsers" \
+  --role="roles/run.invoker"
+```
+
+Do **not** run this for `kangy-api` (production).
+
+### 4. Set the backend API URL on the frontend service
+
+The `KANGY_API_BASE` environment variable tells the frontend where to find the backend.
+This is stored on the Cloud Run **service**, so every future revision inherits it automatically
+— you do not need to repeat this on each deploy.
+
+First, get the backend dev URL:
+```bash
+gcloud run services describe kangy-api-dev \
+  --region us-central1 \
+  --project project-4d02db76-5b1d-4288-b08 \
+  --format 'value(status.url)'
+```
+
+Then set it on the frontend service:
+```bash
+gcloud run services update kangy-web-dev \
+  --region us-central1 \
+  --project project-4d02db76-5b1d-4288-b08 \
+  --set-env-vars KANGY_API_BASE=<paste-url-here>
+```
+
+This triggers a new revision automatically — no redeploy needed.
 
 ---
 
@@ -153,21 +194,20 @@ The frontend Dockerfile (`frontend/Dockerfile`) is a multi-stage build:
 
 Key files copied into the image:
 - `nginx.conf` — SPA routing (all paths fall back to `index.html`), no-cache on `/config.js`
-- `docker-entrypoint.sh` — generates `/config.js` at container start from `KANGY_API_BASE` env var, then starts nginx
+- `docker-entrypoint.sh` — generates `/config.js` at container start from `KANGY_API_BASE`,
+  then starts nginx. If `KANGY_API_BASE` is unset the frontend assumes the API is same-origin.
 
 ---
 
-## Testing a Deployed Service
+## Verifying a Deployed Service
 
+Get the frontend URL:
 ```bash
-# Mac/Linux
-curl https://SERVICE_URL
-
-# With auth token (if unauthenticated access is disabled)
-curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" https://SERVICE_URL
+gcloud run services describe kangy-web-dev \
+  --region us-central1 \
+  --project project-4d02db76-5b1d-4288-b08 \
+  --format 'value(status.url)'
 ```
 
-Get the service URL:
-```bash
-gcloud run services describe kangy-web-dev --region us-central1 --format 'value(status.url)'
-```
+Open the URL in a browser. Use devtools → Network tab to confirm API calls are reaching
+the backend URL and returning 200s.

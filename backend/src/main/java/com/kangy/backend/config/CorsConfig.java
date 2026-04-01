@@ -12,7 +12,8 @@ public class CorsConfig implements WebMvcConfigurer {
         .addMapping("/api/**")
         .allowedOriginPatterns(
             "http://localhost:*",
-            "http://127.0.0.1:*"
+            "http://127.0.0.1:*",
+            "https://*.run.app"
         )
         .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
         .allowedHeaders("*")
