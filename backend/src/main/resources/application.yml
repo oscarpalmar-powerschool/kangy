@@ -18,3 +18,10 @@ springdoc:
   swagger-ui:
     path: /swagger-ui
 
+kangy:
+  security:
+    # Secret embedded in ESP32 firmware — must be present in every /register request (X-Registration-Token header).
+    device-registration-token: ${DEVICE_REGISTRATION_TOKEN}
+    # Secret used by the React frontend — required on all frontend-facing endpoints (X-Api-Key header).
+    frontend-api-key: ${FRONTEND_API_KEY}
+

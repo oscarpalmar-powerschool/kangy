@@ -24,9 +24,6 @@ public class DeviceRegistry {
     DeviceType type = DeviceType.parse(request.deviceType());
 
     return byDeviceId.compute(request.deviceId(), (deviceId, existing) -> {
-      if (existing != null) {
-        return existing;
-      }
       String token = generateToken();
       return new RegisteredDevice(
           deviceId,

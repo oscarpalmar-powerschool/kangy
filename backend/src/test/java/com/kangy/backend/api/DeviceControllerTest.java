@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -29,6 +30,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(DeviceController.class)
+@TestPropertySource(properties = {
+    "kangy.security.device-registration-token=test-reg-token",
+    "kangy.security.frontend-api-key=test-api-key"
+})
 class DeviceControllerTest {
 
   @Autowired MockMvc mvc;
@@ -40,6 +45,8 @@ class DeviceControllerTest {
 
   private static final String DEVICE_ID = "esp-test-1";
   private static final String TOKEN = "valid-token-abc";
+  private static final String REG_TOKEN = "test-reg-token";
+  private static final String API_KEY = "test-api-key";
 
   private DeviceRegistry.RegisteredDevice registeredDevice() {
     return new DeviceRegistry.RegisteredDevice(
@@ -50,13 +57,14 @@ class DeviceControllerTest {
   // --- POST /api/devices/register ---
 
   @Test
-  void register_validRequest_returns200WithDeviceIdAndToken() throws Exception {
+  void register_validTokenAndRequest_returns200WithDeviceIdAndToken() throws Exception {
     when(deviceRegistry.register(any())).thenReturn(registeredDevice());
 
     DeviceRegistrationRequest req = new DeviceRegistrationRequest(
         DEVICE_ID, "ESP32", List.of("sensor"), List.of("led"));
 
     mvc.perform(post("/api/devices/register")
+            .header("X-Registration-Token", REG_TOKEN)
             .contentType(MediaType.APPLICATION_JSON)
             .content(json.writeValueAsString(req)))
         .andExpect(status().isOk())
@@ -66,11 +74,35 @@ class DeviceControllerTest {
   }
 
   @Test
+  void register_missingRegistrationToken_returns401() throws Exception {
+    DeviceRegistrationRequest req = new DeviceRegistrationRequest(
+        DEVICE_ID, "ESP32", List.of("sensor"), List.of("led"));
+
+    mvc.perform(post("/api/devices/register")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(json.writeValueAsString(req)))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void register_wrongRegistrationToken_returns401() throws Exception {
+    DeviceRegistrationRequest req = new DeviceRegistrationRequest(
+        DEVICE_ID, "ESP32", List.of("sensor"), List.of("led"));
+
+    mvc.perform(post("/api/devices/register")
+            .header("X-Registration-Token", "wrong-token")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(json.writeValueAsString(req)))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
   void register_blankDeviceId_returns400() throws Exception {
     DeviceRegistrationRequest req = new DeviceRegistrationRequest(
         "", "ESP32", List.of("sensor"), List.of("led"));
 
     mvc.perform(post("/api/devices/register")
+            .header("X-Registration-Token", REG_TOKEN)
             .contentType(MediaType.APPLICATION_JSON)
             .content(json.writeValueAsString(req)))
         .andExpect(status().isBadRequest());
@@ -83,6 +115,7 @@ class DeviceControllerTest {
         """;
 
     mvc.perform(post("/api/devices/register")
+            .header("X-Registration-Token", REG_TOKEN)
             .contentType(MediaType.APPLICATION_JSON)
             .content(body))
         .andExpect(status().isBadRequest());
@@ -91,20 +124,35 @@ class DeviceControllerTest {
   // --- GET /api/devices ---
 
   @Test
-  void listDevices_returnsDeviceList() throws Exception {
+  void listDevices_validApiKey_returnsDeviceList() throws Exception {
     when(deviceRegistry.list()).thenReturn(List.of(registeredDevice()));
 
-    mvc.perform(get("/api/devices"))
+    mvc.perform(get("/api/devices")
+            .header("X-Api-Key", API_KEY))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].deviceId").value(DEVICE_ID))
         .andExpect(jsonPath("$[0].deviceType").value("ESP32"));
   }
 
   @Test
-  void listDevices_returnsEmptyArray() throws Exception {
+  void listDevices_missingApiKey_returns401() throws Exception {
+    mvc.perform(get("/api/devices"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void listDevices_wrongApiKey_returns401() throws Exception {
+    mvc.perform(get("/api/devices")
+            .header("X-Api-Key", "wrong-key"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void listDevices_validApiKey_returnsEmptyArray() throws Exception {
     when(deviceRegistry.list()).thenReturn(List.of());
 
-    mvc.perform(get("/api/devices"))
+    mvc.perform(get("/api/devices")
+            .header("X-Api-Key", API_KEY))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$").isArray())
         .andExpect(jsonPath("$").isEmpty());
@@ -162,7 +210,8 @@ class DeviceControllerTest {
   void getStatus_unknownDevice_returns400() throws Exception {
     when(deviceRegistry.findByDeviceId(DEVICE_ID)).thenReturn(Optional.empty());
 
-    mvc.perform(get("/api/devices/{id}/status", DEVICE_ID))
+    mvc.perform(get("/api/devices/{id}/status", DEVICE_ID)
+            .header("X-Api-Key", API_KEY))
         .andExpect(status().isBadRequest());
   }
 
@@ -173,10 +222,17 @@ class DeviceControllerTest {
     when(deviceStatusStore.getLastSeenAt(DEVICE_ID)).thenReturn("2024-01-01T00:00:00Z");
     when(deviceStatusStore.getMostRecentFirst(eq(DEVICE_ID), anyInt())).thenReturn(List.of());
 
-    mvc.perform(get("/api/devices/{id}/status", DEVICE_ID))
+    mvc.perform(get("/api/devices/{id}/status", DEVICE_ID)
+            .header("X-Api-Key", API_KEY))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.deviceId").value(DEVICE_ID))
         .andExpect(jsonPath("$.deviceType").value("ESP32"));
+  }
+
+  @Test
+  void getStatus_missingApiKey_returns401() throws Exception {
+    mvc.perform(get("/api/devices/{id}/status", DEVICE_ID))
+        .andExpect(status().isUnauthorized());
   }
 
   // --- GET /api/devices/{deviceId}/actions ---
@@ -247,11 +303,24 @@ class DeviceControllerTest {
             Map.of("id", "s1", "degrees", 90))));
 
     mvc.perform(post("/api/devices/{id}/actions:enqueue", DEVICE_ID)
+            .header("X-Api-Key", API_KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content(json.writeValueAsString(req)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.enqueuedCount").value(1))
         .andExpect(jsonPath("$.message").value("ENQUEUED"));
+  }
+
+  @Test
+  void enqueueActions_missingApiKey_returns401() throws Exception {
+    DeviceActionEnqueueRequest req = new DeviceActionEnqueueRequest(
+        List.of(new DeviceActionEnqueueRequest.Action("servo.setPosition",
+            Map.of("id", "s1", "degrees", 90))));
+
+    mvc.perform(post("/api/devices/{id}/actions:enqueue", DEVICE_ID)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(json.writeValueAsString(req)))
+        .andExpect(status().isUnauthorized());
   }
 
   @Test
@@ -263,6 +332,7 @@ class DeviceControllerTest {
             Map.of("id", "s1", "degrees", 200))));
 
     mvc.perform(post("/api/devices/{id}/actions:enqueue", DEVICE_ID)
+            .header("X-Api-Key", API_KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content(json.writeValueAsString(req)))
         .andExpect(status().isBadRequest());
@@ -280,6 +350,7 @@ class DeviceControllerTest {
             Map.of("id", "led1", "mode", "blink"))));
 
     mvc.perform(post("/api/devices/{id}/actions:enqueue", DEVICE_ID)
+            .header("X-Api-Key", API_KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content(json.writeValueAsString(req)))
         .andExpect(status().isOk())
@@ -295,6 +366,7 @@ class DeviceControllerTest {
             Map.of("id", "led1", "mode", "strobe"))));
 
     mvc.perform(post("/api/devices/{id}/actions:enqueue", DEVICE_ID)
+            .header("X-Api-Key", API_KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content(json.writeValueAsString(req)))
         .andExpect(status().isBadRequest());
@@ -309,6 +381,7 @@ class DeviceControllerTest {
             Map.of("id", "s1", "degrees", 90))));
 
     mvc.perform(post("/api/devices/{id}/actions:enqueue", DEVICE_ID)
+            .header("X-Api-Key", API_KEY)
             .contentType(MediaType.APPLICATION_JSON)
             .content(json.writeValueAsString(req)))
         .andExpect(status().isBadRequest());

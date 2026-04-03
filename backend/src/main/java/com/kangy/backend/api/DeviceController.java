@@ -27,6 +27,7 @@ import com.google.cloud.texttospeech.v1.SynthesisInput;
 import com.google.cloud.texttospeech.v1.SynthesizeSpeechResponse;
 import com.google.cloud.texttospeech.v1.TextToSpeechClient;
 import com.google.cloud.texttospeech.v1.VoiceSelectionParams;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -45,6 +46,12 @@ public class DeviceController {
   private final DeviceRegistry deviceRegistry;
   private final DeviceStatusStore deviceStatusStore;
   private final DeviceActionQueue deviceActionQueue;
+
+  @Value("${kangy.security.device-registration-token}")
+  private String deviceRegistrationToken;
+
+  @Value("${kangy.security.frontend-api-key}")
+  private String frontendApiKey;
 
   public DeviceController(
       DeviceRegistry deviceRegistry,
@@ -108,7 +115,12 @@ public class DeviceController {
   }
 
   @PostMapping(value = "/register", consumes = MediaType.APPLICATION_JSON_VALUE)
-  public DeviceRegistrationResponse registerDevice(@Valid @RequestBody DeviceRegistrationRequest request) {
+  public DeviceRegistrationResponse registerDevice(
+      @RequestHeader(value = "X-Registration-Token", required = false) String registrationToken,
+      @Valid @RequestBody DeviceRegistrationRequest request) {
+    if (!deviceRegistrationToken.equals(registrationToken)) {
+      throw new UnauthorizedException("UNAUTHORIZED");
+    }
     DeviceRegistry.RegisteredDevice registered = deviceRegistry.register(request);
 
     return new DeviceRegistrationResponse(
@@ -119,7 +131,11 @@ public class DeviceController {
   }
 
   @GetMapping
-  public List<RegisteredDeviceDto> listRegisteredDevices() {
+  public List<RegisteredDeviceDto> listRegisteredDevices(
+      @RequestHeader(value = "X-Api-Key", required = false) String apiKey) {
+    if (!frontendApiKey.equals(apiKey)) {
+      throw new UnauthorizedException("UNAUTHORIZED");
+    }
     return deviceRegistry.list().stream()
         .map(d -> new RegisteredDeviceDto(
             d.deviceId(),
@@ -166,8 +182,12 @@ public class DeviceController {
   @GetMapping("/{deviceId}/status")
   public DeviceStatusGetResponse getLatestDeviceStatus(
       @PathVariable String deviceId,
+      @RequestHeader(value = "X-Api-Key", required = false) String apiKey,
       @org.springframework.web.bind.annotation.RequestParam(value = "limit", defaultValue = "50") int limit
   ) {
+    if (!frontendApiKey.equals(apiKey)) {
+      throw new UnauthorizedException("UNAUTHORIZED");
+    }
     DeviceRegistry.RegisteredDevice device = deviceRegistry.findByDeviceId(deviceId)
         .orElseThrow(() -> new IllegalArgumentException("Unknown deviceId: " + deviceId));
 
@@ -225,8 +245,12 @@ public class DeviceController {
   @PostMapping(value = "/{deviceId}/actions:enqueue", consumes = MediaType.APPLICATION_JSON_VALUE)
   public DeviceActionEnqueueResponse enqueueDeviceActionsForDevice(
       @PathVariable String deviceId,
+      @RequestHeader(value = "X-Api-Key", required = false) String apiKey,
       @Valid @RequestBody DeviceActionEnqueueRequest request
   ) {
+    if (!frontendApiKey.equals(apiKey)) {
+      throw new UnauthorizedException("UNAUTHORIZED");
+    }
     deviceRegistry.findByDeviceId(deviceId)
         .orElseThrow(() -> new IllegalArgumentException("Unknown deviceId: " + deviceId));
 

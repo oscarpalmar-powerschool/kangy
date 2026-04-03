@@ -34,12 +34,13 @@ class DeviceRegistryTest {
   }
 
   @Test
-  void register_isIdempotent() {
+  void register_reregistrationReplacesToken() throws InterruptedException {
     DeviceRegistry.RegisteredDevice first = registry.register(req("esp-1", "ESP32"));
+    Thread.sleep(5); // ensure distinct timestamps
     DeviceRegistry.RegisteredDevice second = registry.register(req("esp-1", "ESP32"));
 
-    assertThat(second.token()).isEqualTo(first.token());
-    assertThat(second.registeredAt()).isEqualTo(first.registeredAt());
+    assertThat(second.token()).isNotEqualTo(first.token());
+    assertThat(second.registeredAt()).isNotEqualTo(first.registeredAt());
   }
 
   @Test
