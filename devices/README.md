@@ -23,20 +23,3 @@ devices/
 ## Optional: `shared/`
 
 Use `devices/shared/` for things that apply to all device types but aren’t source code (e.g. API contract docs, JSON schema for device↔backend messages). Actual code sharing across Arduino and RPi is limited by language; keep protocol and docs in `shared/` and implement per device in `esp32/`, `xiao/`, `rpi/`.
-
-## Lint/Test cases
-
-# Run tests only
-
-mvn -f backend/pom.xml test
-
-# Run lint only
-
-mvn -f backend/pom.xml checkstyle:check
-
-# Run both (what CI will do)
-
-mvn -f backend/pom.xml verify
-
-curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-https://kangy-api-dev-223647245649.us-central1.run.app/actuator/health

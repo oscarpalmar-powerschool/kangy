@@ -20,6 +20,8 @@ See [devices/README.md](devices/README.md) for per-device tooling and layout.
 ## Run locally
 
 - **Backend:** `cd backend && mvn -DskipTests spring-boot:run` (or from repo root: 'docker build -t kangy-backend ./backend' 'docker run --rm -p 8080:8080 kangy-backend' )
+  or after adding security:
+  `DEVICE_REGISTRATION_TOKEN=local-reg-token FRONTEND_API_KEY=local-api-key ./mvnw spring-boot:run -f backend/pom.xml`
   Useful URLs:
 
 Health: GET /actuator/health
@@ -40,3 +42,23 @@ GitHub Actions build and deploy to AWS ECS when `backend/`, `frontend/`, or `age
 See [.github/workflows/README.md](.github/workflows/README.md) for secrets, variables, and dev vs prod setup.
 
 ## License
+
+## Lint/Test cases
+
+# Run tests only
+
+mvn -f backend/pom.xml test
+
+# Run lint only
+
+mvn -f backend/pom.xml checkstyle:check
+
+# Run both (what CI will do)
+
+mvn -f backend/pom.xml verify
+
+curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+https://kangy-api-dev-223647245649.us-central1.run.app/actuator/health
+
+To revert your CLI to the previously installed version, you may run:
+$ gcloud components update --version 562.0.0

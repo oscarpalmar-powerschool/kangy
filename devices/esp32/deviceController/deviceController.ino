@@ -21,6 +21,7 @@
 static const char* kSsid = WIFI_SSID;
 static const char* kPassword = WIFI_PASSWORD;
 static const char* kApiBase = API_BASE_URL;
+static const char* kRegistrationToken = DEVICE_REGISTRATION_TOKEN;
 
 const int kLedPin = 2;
 const int kServoPin = 13;
@@ -133,10 +134,15 @@ bool registerWithBackend() {
   String body;
   serializeJson(req, body);
 
-  String resp;
-  int code = 0;
   String url = String(kApiBase) + "/register";
-  if (!postJson(url, "", body, resp, code)) {
+  HTTPClient http;
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Registration-Token", kRegistrationToken);
+  int code = http.POST(body);
+  String resp = (code > 0) ? http.getString() : "";
+  http.end();
+  if (code <= 0) {
     Serial.printf("register: HTTP error (no response)\n");
     return false;
   }

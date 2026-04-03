@@ -8,8 +8,13 @@ declare global {
   interface Window {
     __KANGY_CONFIG__?: {
       apiBase?: string;
+      apiKey?: string;
     };
   }
+}
+
+function resolvedApiKey(): string {
+  return window.__KANGY_CONFIG__?.apiKey || (import.meta.env.VITE_API_KEY as string | undefined) || "";
 }
 
 export async function apiGetJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -21,6 +26,7 @@ export async function apiGetJson<T>(path: string, init?: RequestInit): Promise<T
     method: "GET",
     headers: {
       Accept: "application/json",
+      "X-Api-Key": resolvedApiKey(),
       ...(init?.headers ?? {}),
     },
   });
@@ -47,6 +53,7 @@ export async function apiPostJson<TResponse, TBody = unknown>(
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      "X-Api-Key": resolvedApiKey(),
       ...(init?.headers ?? {}),
     },
     body: JSON.stringify(body),
