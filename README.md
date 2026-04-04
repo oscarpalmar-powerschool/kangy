@@ -21,7 +21,9 @@ See [devices/README.md](devices/README.md) for per-device tooling and layout.
 
 - **Backend:** `cd backend && mvn -DskipTests spring-boot:run` (or from repo root: 'docker build -t kangy-backend ./backend' 'docker run --rm -p 8080:8080 kangy-backend' )
   or after adding security:
-  `DEVICE_REGISTRATION_TOKEN=local-reg-token FRONTEND_API_KEY=local-api-key ./mvnw spring-boot:run -f backend/pom.xml`
+  `set DEVICE_REGISTRATION_TOKEN=local-reg-token` 
+  `set FRONTEND_API_KEY=local-api-key` 
+  `mvn spring-boot:run -f backend/pom.xml`
   Useful URLs:
 
 Health: GET /actuator/health

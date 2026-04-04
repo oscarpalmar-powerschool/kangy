@@ -218,6 +218,7 @@ static void applySpeaker(JsonObjectConst payload) {
 
   HTTPClient http;
   http.begin(url);
+  http.addHeader("Authorization", "Bearer " + gToken);
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
     Serial.printf("Speaker: HTTP %d\n", code);

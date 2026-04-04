@@ -64,7 +64,13 @@ public class DeviceController {
   }
 
   @GetMapping("/speak")
-  public ResponseEntity<byte[]> speak() throws Exception {
+  public ResponseEntity<byte[]> speak(
+      @RequestHeader(value = "Authorization", required = false) String authorization
+  ) throws Exception {
+    String token = extractBearerToken(authorization);
+    if (token == null || deviceRegistry.list().stream().noneMatch(d -> deviceRegistry.tokenMatches(d.deviceId(), token))) {
+      throw new UnauthorizedException("UNAUTHORIZED");
+    }
     try (TextToSpeechClient client = TextToSpeechClient.create()) {
       SynthesisInput input = SynthesisInput.newBuilder()
           .setText("Hello Nancy, is not this better?")
