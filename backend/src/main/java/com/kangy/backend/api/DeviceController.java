@@ -68,7 +68,9 @@ public class DeviceController {
       @RequestHeader(value = "Authorization", required = false) String authorization
   ) throws Exception {
     String token = extractBearerToken(authorization);
-    if (token == null || deviceRegistry.list().stream().noneMatch(d -> deviceRegistry.tokenMatches(d.deviceId(), token))) {
+    boolean validToken = token != null
+        && deviceRegistry.list().stream().anyMatch(d -> deviceRegistry.tokenMatches(d.deviceId(), token));
+    if (!validToken) {
       throw new UnauthorizedException("UNAUTHORIZED");
     }
     try (TextToSpeechClient client = TextToSpeechClient.create()) {
