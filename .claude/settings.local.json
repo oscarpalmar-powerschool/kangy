@@ -3,7 +3,10 @@
     "allow": [
       "Bash(./mvnw test:*)",
       "Bash(mvn -f \"c:/Users/14165/projects/kangy/backend/pom.xml\" test)",
-      "Bash(mvn -f \"c:/Users/14165/projects/kangy/backend/pom.xml\" checkstyle:check)"
+      "Bash(mvn -f \"c:/Users/14165/projects/kangy/backend/pom.xml\" checkstyle:check)",
+      "WebSearch",
+      "WebFetch(domain:docs.cloud.google.com)",
+      "WebFetch(domain:discuss.google.dev)"
     ]
   }
 }

@@ -9,10 +9,10 @@ COPY src ./src
 RUN mvn package -DskipTests -B
 
 # Runtime stage
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
-RUN adduser -D -u 1000 appuser
+RUN useradd -u 1000 appuser
 COPY --from=builder /app/target/*.jar app.jar
 USER appuser
 
