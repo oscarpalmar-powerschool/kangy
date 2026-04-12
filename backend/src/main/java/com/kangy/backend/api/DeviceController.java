@@ -17,9 +17,12 @@ import com.kangy.backend.service.DeviceRegistry;
 import com.kangy.backend.service.DeviceStatusStore;
 import jakarta.validation.Valid;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Random;
 import com.google.cloud.texttospeech.v1.AudioConfig;
 import com.google.cloud.texttospeech.v1.AudioEncoding;
 import com.google.cloud.texttospeech.v1.SsmlVoiceGender;
@@ -42,6 +45,27 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping(value = "/api/devices", produces = MediaType.APPLICATION_JSON_VALUE)
 public class DeviceController {
+
+  private static final int MAX_TTS_CACHE_SIZE = 20;
+
+  private static final String[] GREETING_MESSAGES = {
+      "Hey there, good to see you!",
+      "Welcome back!",
+      "Hello, how are you doing?",
+      "Hi! Hope you're having a great day.",
+      "Good to have you here!"
+  };
+
+  private static final Random RANDOM = new Random();
+
+  private final Map<String, byte[]> ttsCache = Collections.synchronizedMap(
+      new LinkedHashMap<String, byte[]>(MAX_TTS_CACHE_SIZE + 1, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, byte[]> eldest) {
+          return size() > MAX_TTS_CACHE_SIZE;
+        }
+      }
+  );
 
   private final DeviceRegistry deviceRegistry;
   private final DeviceStatusStore deviceStatusStore;
@@ -73,31 +97,37 @@ public class DeviceController {
     if (!validToken) {
       throw new UnauthorizedException("UNAUTHORIZED");
     }
-    try (TextToSpeechClient client = TextToSpeechClient.create()) {
-      SynthesisInput input = SynthesisInput.newBuilder()
-          .setText("Hello Nancy, is not this better?")
-          .build();
+    String text = GREETING_MESSAGES[RANDOM.nextInt(GREETING_MESSAGES.length)];
 
-      VoiceSelectionParams voice = VoiceSelectionParams.newBuilder()
-          .setLanguageCode("en-US")
-          .setSsmlGender(SsmlVoiceGender.NEUTRAL)
-          .build();
+    byte[] wav = ttsCache.get(text);
+    if (wav == null) {
+      try (TextToSpeechClient client = TextToSpeechClient.create()) {
+        SynthesisInput input = SynthesisInput.newBuilder()
+            .setText(text)
+            .build();
 
-      AudioConfig audioConfig = AudioConfig.newBuilder()
-          .setAudioEncoding(AudioEncoding.LINEAR16)
-          .setSampleRateHertz(16000)
-          .build();
+        VoiceSelectionParams voice = VoiceSelectionParams.newBuilder()
+            .setLanguageCode("en-US")
+            .setSsmlGender(SsmlVoiceGender.NEUTRAL)
+            .build();
 
-      SynthesizeSpeechResponse response = client.synthesizeSpeech(input, voice, audioConfig);
-      byte[] pcm = response.getAudioContent().toByteArray();
-      byte[] wav = buildWav(pcm, 16000, 1, 16);
+        AudioConfig audioConfig = AudioConfig.newBuilder()
+            .setAudioEncoding(AudioEncoding.LINEAR16)
+            .setSampleRateHertz(16000)
+            .build();
 
-      HttpHeaders headers = new HttpHeaders();
-      headers.setContentType(MediaType.parseMediaType("audio/wav"));
-      headers.setContentLength(wav.length);
-
-      return ResponseEntity.ok().headers(headers).body(wav);
+        SynthesizeSpeechResponse response = client.synthesizeSpeech(input, voice, audioConfig);
+        byte[] pcm = response.getAudioContent().toByteArray();
+        wav = buildWav(pcm, 16000, 1, 16);
+        ttsCache.put(text, wav);
+      }
     }
+
+    HttpHeaders headers = new HttpHeaders();
+    headers.setContentType(MediaType.parseMediaType("audio/wav"));
+    headers.setContentLength(wav.length);
+
+    return ResponseEntity.ok().headers(headers).body(wav);
   }
 
   private static byte[] buildWav(byte[] pcm, int sampleRate, int channels, int bitsPerSample) {
