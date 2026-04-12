@@ -25,3 +25,5 @@ devices/esp32/deviceController/config.h
 devices/esp32/deviceController/config.local.h
 devices/esp32/deviceController/config.dev.h
 devices/esp32/deviceController/config.prod.h
+
+google.aistudio.info
