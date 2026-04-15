@@ -15,6 +15,7 @@ import com.kangy.backend.api.dto.RegisteredDeviceDto;
 import com.kangy.backend.service.DeviceActionQueue;
 import com.kangy.backend.service.DeviceRegistry;
 import com.kangy.backend.service.DeviceStatusStore;
+import com.kangy.backend.service.ImageStorageService;
 import jakarta.validation.Valid;
 import java.time.Instant;
 import java.util.Collections;
@@ -70,6 +71,7 @@ public class DeviceController {
   private final DeviceRegistry deviceRegistry;
   private final DeviceStatusStore deviceStatusStore;
   private final DeviceActionQueue deviceActionQueue;
+  private final ImageStorageService imageStorageService;
 
   @Value("${kangy.security.device-registration-token}")
   private String deviceRegistrationToken;
@@ -80,11 +82,39 @@ public class DeviceController {
   public DeviceController(
       DeviceRegistry deviceRegistry,
       DeviceStatusStore deviceStatusStore,
-      DeviceActionQueue deviceActionQueue
+      DeviceActionQueue deviceActionQueue,
+      ImageStorageService imageStorageService
   ) {
     this.deviceRegistry = deviceRegistry;
     this.deviceStatusStore = deviceStatusStore;
     this.deviceActionQueue = deviceActionQueue;
+    this.imageStorageService = imageStorageService;
+  }
+
+  @PostMapping(value = "/{deviceId}/image", consumes = "image/jpeg")
+  public ResponseEntity<Map<String, String>> uploadImage(
+      @PathVariable String deviceId,
+      @RequestHeader(value = "X-Registration-Token", required = false) String registrationToken,
+      @RequestBody byte[] imageBytes
+  ) throws java.io.IOException {
+    System.err.println("[IMAGE] POST /" + deviceId + "/image — " + (imageBytes == null ? 0 : imageBytes.length) + " bytes, token=" + (registrationToken != null ? "present" : "MISSING"));
+    if (!deviceRegistrationToken.equals(registrationToken)) {
+      System.err.println("[IMAGE] REJECTED — bad token");
+      throw new UnauthorizedException("UNAUTHORIZED");
+    }
+    deviceRegistry.findByDeviceId(deviceId)
+        .orElseThrow(() -> {
+          System.err.println("[IMAGE] REJECTED — unknown deviceId: " + deviceId);
+          return new IllegalArgumentException("Unknown deviceId: " + deviceId);
+        });
+
+    String savedPath = imageStorageService.save(deviceId, imageBytes);
+    System.err.println("[IMAGE] SAVED — " + savedPath);
+    return ResponseEntity.ok(Map.of(
+        "deviceId", deviceId,
+        "path", savedPath,
+        "status", "SAVED"
+    ));
   }
 
   @GetMapping("/speak")

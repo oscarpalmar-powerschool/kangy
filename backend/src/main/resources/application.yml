@@ -24,4 +24,7 @@ kangy:
     device-registration-token: ${DEVICE_REGISTRATION_TOKEN}
     # Secret used by the React frontend — required on all frontend-facing endpoints (X-Api-Key header).
     frontend-api-key: ${FRONTEND_API_KEY}
+  images:
+    # Directory where XIAO-uploaded images are stored, organised as {root}/{deviceId}/{date}/{timestamp}.jpg
+    storage-path: ${IMAGES_STORAGE_PATH:./images}
 

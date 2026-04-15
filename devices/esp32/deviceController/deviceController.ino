@@ -2,6 +2,11 @@
  * ESP32 device controller: registers with Kangy backend (servo + LED + speaker outputs),
  * then uses a single POST /status round-trip per interval to ack completed actions
  * and receive new ones (minimal traffic vs separate GET + ack).
+ *
+ * Radar: reads the HLK-LD2410C via UART. When a target enters the trigger zone
+ * (RADAR_TRIGGER_MIN_CM – RADAR_TRIGGER_MAX_CM) the XIAO trigger pin is pulsed HIGH
+ * for RADAR_TRIGGER_PULSE_MS. A cooldown prevents re-triggering until the target
+ * leaves and re-enters the zone.
  */
 
 #include <WiFi.h>
@@ -10,6 +15,7 @@
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
 #include <driver/i2s.h>
+#include <ld2410.h>
 #include <vector>
 #include "config.h"
 
@@ -17,6 +23,16 @@
 #define I2S_LRCLK 25
 #define I2S_DOUT  22
 #define WAV_HEADER_SIZE 44
+
+// --- Radar (HLK-LD2410C) ---
+#define RADAR_RX_PIN          16   // Serial2 RX <- sensor TX
+#define RADAR_TX_PIN          17   // Serial2 TX -> sensor RX
+#define RADAR_OUT_PIN          4   // OUT GPIO from sensor
+#define XIAO_TRIGGER_PIN       5   // output to XIAO D0
+#define RADAR_BAUD        256000
+#define RADAR_TRIGGER_MIN_CM  80   // trigger zone start
+#define RADAR_TRIGGER_MAX_CM 100   // trigger zone end
+#define RADAR_TRIGGER_PULSE_MS 200 // how long to hold trigger pin HIGH
 
 static const char* kSsid = WIFI_SSID;
 static const char* kPassword = WIFI_PASSWORD;
@@ -37,6 +53,11 @@ const unsigned long kPollIntervalMs = 500;
 
 unsigned long gLastPollMs = 0;
 int gLastServoAngle = -1;
+
+// --- Radar ---
+ld2410 gRadar;
+bool gLastInZone     = false;
+unsigned long gTriggerEndMs = 0;
 
 // --- LED (solid + non-blocking blink) ---
 bool gLedBlink = false;
@@ -120,12 +141,44 @@ static bool postJson(const String& url, const String& authBearer, const String& 
   return httpCode > 0;
 }
 
+static int radarClosestTargetCm() {
+  if (!gRadar.presenceDetected()) return -1;
+  int dist = INT_MAX;
+  if (gRadar.movingTargetDetected())
+    dist = min(dist, (int)gRadar.movingTargetDistance());
+  if (gRadar.stationaryTargetDetected())
+    dist = min(dist, (int)gRadar.stationaryTargetDistance());
+  return (dist == INT_MAX) ? -1 : dist;
+}
+
+static void radarService() {
+  gRadar.read();
+
+  int  dist   = radarClosestTargetCm();
+  bool inZone = (dist >= RADAR_TRIGGER_MIN_CM && dist <= RADAR_TRIGGER_MAX_CM);
+
+  // Rising edge into zone → pulse trigger
+  if (inZone && !gLastInZone) {
+    Serial.printf("Radar: target at %d cm — triggering XIAO\n", dist);
+    digitalWrite(XIAO_TRIGGER_PIN, HIGH);
+    gTriggerEndMs = millis() + RADAR_TRIGGER_PULSE_MS;
+  }
+  gLastInZone = inZone;
+
+  // Drop trigger pin after pulse duration
+  if (gTriggerEndMs != 0 && millis() >= gTriggerEndMs) {
+    digitalWrite(XIAO_TRIGGER_PIN, LOW);
+    gTriggerEndMs = 0;
+  }
+}
+
 bool registerWithBackend() {
   DynamicJsonDocument req(512);
   req["deviceId"] = gDeviceId;
   req["deviceType"] = "ESP32";
   JsonArray inCaps = req.createNestedArray("inputCapabilities");
   inCaps.add("heartbeat");
+  inCaps.add("radar");
   JsonArray outCaps = req.createNestedArray("outputCapabilities");
   outCaps.add("servo");
   outCaps.add("led");
@@ -334,6 +387,16 @@ void setup() {
 
   gServo.attach(kServoPin);
 
+  pinMode(XIAO_TRIGGER_PIN, OUTPUT);
+  digitalWrite(XIAO_TRIGGER_PIN, LOW);
+  pinMode(RADAR_OUT_PIN, INPUT_PULLDOWN);
+  Serial2.begin(RADAR_BAUD, SERIAL_8N1, RADAR_RX_PIN, RADAR_TX_PIN);
+  if (gRadar.begin(Serial2)) {
+    Serial.println("Radar OK");
+  } else {
+    Serial.println("Radar not responding — check wiring");
+  }
+
   i2s_config_t i2sCfg = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
     .sample_rate = 16000,
@@ -381,6 +444,7 @@ void setup() {
 
 void loop() {
   ledService();
+  radarService();
 
   if (WiFi.status() != WL_CONNECTED) {
     delay(500);
