@@ -6,7 +6,10 @@
       "Bash(mvn -f \"c:/Users/14165/projects/kangy/backend/pom.xml\" checkstyle:check)",
       "WebSearch",
       "WebFetch(domain:docs.cloud.google.com)",
-      "WebFetch(domain:discuss.google.dev)"
+      "WebFetch(domain:discuss.google.dev)",
+      "Bash(xargs wc *)",
+      "Bash(mvn compile *)",
+      "Bash(GOOGLE_CLOUD_PROJECT=dummy mvn test -q)"
     ]
   }
 }

@@ -15,7 +15,7 @@ import com.kangy.backend.api.dto.RegisteredDeviceDto;
 import com.kangy.backend.service.DeviceActionQueue;
 import com.kangy.backend.service.DeviceRegistry;
 import com.kangy.backend.service.DeviceStatusStore;
-import com.kangy.backend.service.ImageStorageService;
+import com.kangy.backend.service.GeminiService;
 import jakarta.validation.Valid;
 import java.time.Instant;
 import java.util.Collections;
@@ -71,7 +71,7 @@ public class DeviceController {
   private final DeviceRegistry deviceRegistry;
   private final DeviceStatusStore deviceStatusStore;
   private final DeviceActionQueue deviceActionQueue;
-  private final ImageStorageService imageStorageService;
+  private final GeminiService geminiService;
 
   @Value("${kangy.security.device-registration-token}")
   private String deviceRegistrationToken;
@@ -83,12 +83,27 @@ public class DeviceController {
       DeviceRegistry deviceRegistry,
       DeviceStatusStore deviceStatusStore,
       DeviceActionQueue deviceActionQueue,
-      ImageStorageService imageStorageService
+      GeminiService geminiService
   ) {
     this.deviceRegistry = deviceRegistry;
     this.deviceStatusStore = deviceStatusStore;
     this.deviceActionQueue = deviceActionQueue;
-    this.imageStorageService = imageStorageService;
+    this.geminiService = geminiService;
+  }
+
+  @GetMapping("/{deviceId}/description")
+  public ResponseEntity<Map<String, String>> getDescription(
+      @PathVariable String deviceId,
+      @RequestHeader(value = "X-Api-Key", required = false) String apiKey
+  ) {
+    if (!frontendApiKey.equals(apiKey)) {
+      throw new UnauthorizedException("UNAUTHORIZED");
+    }
+    String description = geminiService.getDescription(deviceId);
+    if (description == null) {
+      return ResponseEntity.ok(Map.of("deviceId", deviceId, "status", "NOT_YET_DESCRIBED"));
+    }
+    return ResponseEntity.ok(Map.of("deviceId", deviceId, "description", description, "status", "OK"));
   }
 
   @PostMapping(value = "/{deviceId}/image", consumes = "image/jpeg")
@@ -108,12 +123,20 @@ public class DeviceController {
           return new IllegalArgumentException("Unknown deviceId: " + deviceId);
         });
 
-    String savedPath = imageStorageService.save(deviceId, imageBytes);
-    System.err.println("[IMAGE] SAVED — " + savedPath);
+    String description = geminiService.describeOnce(deviceId, imageBytes);
+    if (description != null) {
+      System.err.println("[IMAGE] DESCRIBED — " + deviceId);
+      return ResponseEntity.ok(Map.of(
+          "deviceId", deviceId,
+          "description", description,
+          "status", "DESCRIBED"
+      ));
+    }
+    System.err.println("[IMAGE] SKIPPED — " + deviceId + " already described");
     return ResponseEntity.ok(Map.of(
         "deviceId", deviceId,
-        "path", savedPath,
-        "status", "SAVED"
+        "description", geminiService.getDescription(deviceId),
+        "status", "SKIPPED"
     ));
   }
 

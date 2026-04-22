@@ -27,4 +27,8 @@ kangy:
   images:
     # Directory where XIAO-uploaded images are stored, organised as {root}/{deviceId}/{date}/{timestamp}.jpg
     storage-path: ${IMAGES_STORAGE_PATH:./images}
+  gemini:
+    project-id: ${GOOGLE_CLOUD_PROJECT}
+    location: us-central1
+    model: gemini-2.5-flash
 

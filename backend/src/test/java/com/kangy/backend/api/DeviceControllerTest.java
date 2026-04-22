@@ -9,6 +9,7 @@ import com.kangy.backend.domain.DeviceType;
 import com.kangy.backend.service.DeviceActionQueue;
 import com.kangy.backend.service.DeviceRegistry;
 import com.kangy.backend.service.DeviceStatusStore;
+import com.kangy.backend.service.GeminiService;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,6 +43,7 @@ class DeviceControllerTest {
   @MockitoBean DeviceRegistry deviceRegistry;
   @MockitoBean DeviceStatusStore deviceStatusStore;
   @MockitoBean DeviceActionQueue deviceActionQueue;
+  @MockitoBean GeminiService geminiService;
 
   private static final String DEVICE_ID = "esp-test-1";
   private static final String TOKEN = "valid-token-abc";

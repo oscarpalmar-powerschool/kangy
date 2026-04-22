@@ -107,13 +107,13 @@ static bool initCamera() {
   config.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;
 
   if (psramFound()) {
-    config.frame_size   = FRAMESIZE_VGA;
-    config.jpeg_quality = 12;
+    config.frame_size   = FRAMESIZE_SXGA;  // 1280x1024 — enough detail for recognition
+    config.jpeg_quality = 8;               // 0-63, lower = higher quality
     config.fb_count     = 2;
     config.fb_location  = CAMERA_FB_IN_PSRAM;
   } else {
-    config.frame_size   = FRAMESIZE_QVGA;
-    config.jpeg_quality = 20;
+    config.frame_size   = FRAMESIZE_VGA;   // best DRAM can handle
+    config.jpeg_quality = 12;
     config.fb_count     = 1;
     config.fb_location  = CAMERA_FB_IN_DRAM;
   }
@@ -171,8 +171,12 @@ void setup() {
     ledBlink(10, 80, 80);
     while (true) { delay(1000); }
   }
-  camera_fb_t* warmup = esp_camera_fb_get();
-  if (warmup) esp_camera_fb_return(warmup);
+  // Discard several frames so the OV2640 auto-exposure and white balance settle.
+  for (int i = 0; i < 5; i++) {
+    camera_fb_t* warmup = esp_camera_fb_get();
+    if (warmup) esp_camera_fb_return(warmup);
+    delay(100);
+  }
   Serial.println("Camera OK");
 
   WiFi.mode(WIFI_STA);
@@ -206,6 +210,8 @@ void loop() {
       Serial.println("Trigger — WiFi not connected, skipping");
       ledBlink(5, 80, 80);    // same as upload-failed so you know something went wrong
     } else {
+      Serial.println("Trigger — waiting for subject to settle");
+      delay(800);  // give the subject time to reach the frame center
       Serial.println("Trigger — capturing");
       captureAndUpload();
     }
